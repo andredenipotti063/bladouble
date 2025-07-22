@@ -1,139 +1,96 @@
-(function () {
+(async function () {
   if (document.getElementById("doubleBlackPainel")) return;
 
-  // CSS do painel
   const style = document.createElement("style");
   style.innerHTML = `
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap');
-
-    #doubleBlackPainel {
-      position: fixed;
-      top: 20px;
-      right: 20px;
-      background: #111;
-      color: #fff;
-      padding: 20px;
-      z-index: 9999;
-      border-radius: 12px;
-      font-family: 'Inter', sans-serif;
-      box-shadow: 0 0 15px rgba(0,0,0,0.5);
-      width: 260px;
-      transition: all 0.3s ease;
-    }
-
-    #doubleBlackPainel h2 {
-      margin: 0 0 12px 0;
-      font-size: 18px;
-      text-align: center;
-    }
-
-    #sugestaoBox {
-      font-size: 24px;
-      padding: 10px;
-      margin-bottom: 10px;
-      text-align: center;
-      border-radius: 8px;
-      font-weight: 600;
-    }
-
-    #historicoBox {
-      display: flex;
-      gap: 4px;
-      flex-wrap: wrap;
-      justify-content: center;
-    }
-
-    .bolaHist {
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      border: 1px solid #333;
-    }
-
-    .pretoHist { background: #000; }
-    .vermelhoHist { background: #c00; }
-    .brancoHist { background: #fff; border: 2px solid #999; }
+    #doubleBlackPainel { position:fixed; top:30px; right:30px; background:#111; color:#fff;
+      padding:15px; border-radius:10px; z-index:9999; font-family:Arial,sans-serif;
+      width:260px; box-shadow:0 0 10px rgba(0,0,0,0.4); }
+    #doubleBlackPainel h1 { margin:0 0 10px; font-size:16px; text-align:center; }
+    #sugestaoBox { padding:10px; text-align:center; font-weight:bold; border-radius:8px;
+      background-color:#222; margin-bottom:10px; }
+    #historicoBox { display:flex; gap:4px; justify-content:center; flex-wrap:wrap; }
+    .bolaHist { width:20px; height:20px; border-radius:50%; }
+    .pretoHist { background:black; }
+    .vermelhoHist { background:red; }
+    .brancoHist { background:white; border:1px solid #999; }
   `;
   document.head.appendChild(style);
 
-  // Painel HTML
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
-    <h2>Blaze - Previsão</h2>
-    <div id="sugestaoBox">Carregando...</div>
+    <h1>🔮 Previsão Inteligente</h1>
+    <div id="sugestaoBox">⏳ Coletando dados...</div>
     <div id="historicoBox"></div>
   `;
   document.body.appendChild(painel);
 
-  // Estado
-  let historico = [];
-  let carregando = false;
+  const historico = [];
+  let ultimoId = null;
 
-  // Coleta via API oficial Blaze
-  async function getHistorico() {
-    if (carregando) return;
-    carregando = true;
-
+  async function fetchLast() {
     try {
       const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
       const data = await res.json();
-      historico = [...new Set(data.map(jogo => jogo.color))];
+      const cor = data[0]?.color;
+      const id = data[0]?.id;
+
+      if (id && cor !== undefined && id !== ultimoId) {
+        historico.unshift(cor);
+        if (historico.length > 50) historico.pop();
+        ultimoId = id;
+      }
     } catch (e) {
-      console.error("Erro ao buscar histórico:", e);
+      console.error("❌ Erro ao buscar a API:", e);
     }
-
-    carregando = false;
   }
 
-  // Previsão simples baseada em padrão
-  function prever(historico) {
-    const [a, b, c] = historico;
+  function prever(ultimos) {
+    if (ultimos.length < 5) return { cor: "#333", texto: "⌛ Coletando dados..." };
 
-    if (a === 1 && b === 1 && c === 1)
-      return { cor: "black", texto: "Tendência: VERMELHO → PRETO" };
+    const u5 = ultimos.slice(0, 5);
+    const p5 = u5.filter(n => n === 2).length;
+    const v5 = u5.filter(n => n === 1).length;
+    const bTot = ultimos.filter(n => n === 0).length;
 
-    if (a === 2 && b === 2 && c === 2)
-      return { cor: "red", texto: "Tendência: PRETO → VERMELHO" };
+    if (p5 >= 4) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho" };
+    if (v5 >= 4) return { cor: "black", texto: "🔁 Inversão: Apostar Preto" };
 
-    if (a === 0 || b === 0 || c === 0)
-      return { cor: "white", texto: "Chance de BRANCO!" };
+    const p10 = ultimos.slice(0, 10).filter(n => n === 2).length;
+    const v10 = ultimos.slice(0, 10).filter(n => n === 1).length;
 
-    return { cor: "gray", texto: "Sem oportunidade confiável" };
+    if (p10 >= 6) return { cor: "red", texto: "📊 Tendência Preto → Vermelho" };
+    if (v10 >= 6) return { cor: "black", texto: "📊 Tendência Vermelho → Preto" };
+
+    if (bTot <= 1 && ultimos[0] !== 0) return { cor: "white", texto: "⚪️ Branco possível" };
+
+    return p5 > v5
+      ? { cor: "black", texto: "🤖 Probabilidade: Preto" }
+      : { cor: "red", texto: "🤖 Probabilidade: Vermelho" };
   }
 
-  // Atualizar o painel
   function atualizarPainel() {
-    const ultimos = historico.slice(0, 12);
+    const ult = historico.slice(0, 12);
     const { cor, texto } = prever(historico);
 
     const sugestao = document.getElementById("sugestaoBox");
     sugestao.textContent = texto;
-
-    if (cor === "white") {
-      sugestao.style.background = "#eee";
-      sugestao.style.color = "#000";
-    } else {
-      sugestao.style.background = cor;
-      sugestao.style.color = "#fff";
-    }
+    sugestao.style.background = cor;
 
     const box = document.getElementById("historicoBox");
     box.innerHTML = "";
-
-    ultimos.forEach(n => {
+    ult.forEach(n => {
       const el = document.createElement("div");
-      el.className = "bolaHist " + (
-        n === 0 ? "brancoHist" :
-        n === 2 ? "pretoHist" :
-        "vermelhoHist"
-      );
+      el.className = "bolaHist " + (n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist");
       box.appendChild(el);
     });
   }
 
-  // Loop de atualização
-  setInterval(() => {
-    getHistorico().then(atualizarPainel);
-  }, 2500);
+  // 🔁 Loop
+  await fetchLast(); atualizarPainel();
+  setInterval(async () => {
+    await fetchLast();
+    atualizarPainel();
+  }, 3000);
 })();
