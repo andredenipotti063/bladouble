@@ -55,40 +55,30 @@
   `;
   document.body.appendChild(painel);
 
-  function getHistorico(limit = 50) {
-    const tiles = Array.from(document.querySelectorAll('[class*="tile"]'))
-      .filter(el => el.textContent.trim() !== "")
-      .slice(0, limit);
-
-    return tiles.map(tile => {
-      const cor = window.getComputedStyle(tile).backgroundColor;
-      const numero = parseInt(tile.textContent.trim()) || 0;
-
-      if (cor.includes("255, 255, 255")) return 0;        // Branco
-      if (cor.includes("0, 0, 0")) return numero || 2;    // Preto
-      if (cor.includes("255, 0, 0")) return numero || 9;  // Vermelho
-
-      return numero; // fallback
-    });
+  async function getHistorico() {
+    try {
+      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/50");
+      const data = await res.json();
+      return data.map(j => j.color); // color: 0=branco, 1=vermelho, 2=preto
+    } catch (e) {
+      console.error("Erro ao obter histórico:", e);
+      return [];
+    }
   }
 
-  function prever(ultimos, ultimos50) {
+  function prever(ultimos) {
     const u5 = ultimos.slice(0, 5);
     const u10 = ultimos.slice(0, 10);
     const branco10 = u10.filter(n => n === 0).length;
-    const preto10 = u10.filter(n => n >= 1 && n <= 7).length;
-    const vermelho10 = u10.filter(n => n >= 8).length;
+    const preto10 = u10.filter(n => n === 2).length;
+    const vermelho10 = u10.filter(n => n === 1).length;
 
-    if (u5.every(n => n >= 1 && n <= 7)) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho" };
-    if (u5.every(n => n >= 8)) return { cor: "black", texto: "🔁 Inversão: Apostar Preto" };
+    if (u5.every(n => n === 2)) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho" };
+    if (u5.every(n => n === 1)) return { cor: "black", texto: "🔁 Inversão: Apostar Preto" };
 
-    const alt = u5.map(n => {
-      if (n === 0) return 'b';
-      return n <= 7 ? 'p' : 'v';
-    }).join('');
+    const alt = u5.map(n => n === 0 ? "b" : (n === 2 ? "p" : "v")).join('');
     if (/^(pv){2,}$|^(vp){2,}$/.test(alt)) {
-      const ult = ultimos[0];
-      return ult <= 7
+      return ultimos[0] === 2
         ? { cor: "red", texto: "🔄 Alternância: Vermelho" }
         : { cor: "black", texto: "🔄 Alternância: Preto" };
     }
@@ -96,26 +86,26 @@
     if (preto10 >= 6) return { cor: "red", texto: "📊 Tendência Preto → Vermelho" };
     if (vermelho10 >= 6) return { cor: "black", texto: "📊 Tendência Vermelho → Preto" };
 
-    const branco50 = ultimos50.filter(n => n === 0).length;
+    const branco50 = ultimos.filter(n => n === 0).length;
     if (branco50 <= 1 && ultimos[0] !== 0) {
       return { cor: "white", texto: "⚪️ Branco possível (raro)" };
     }
 
     const contagem = { red: 0, black: 0 };
     u5.forEach(n => {
-      if (n >= 1 && n <= 7) contagem.black++;
-      if (n >= 8) contagem.red++;
+      if (n === 2) contagem.black++;
+      if (n === 1) contagem.red++;
     });
     return contagem.black > contagem.red
       ? { cor: "black", texto: "🤖 Sugestão: Preto (probabilístico)" }
       : { cor: "red", texto: "🤖 Sugestão: Vermelho (probabilístico)" };
   }
 
-  function atualizarPainel() {
-    const ultimos = getHistorico(50).reverse();
-    const ultimos50 = [...ultimos];
+  async function atualizarPainel() {
+    const ultimos = await getHistorico();
+    if (!ultimos.length) return;
 
-    const { cor, texto } = prever(ultimos, ultimos50);
+    const { cor, texto } = prever(ultimos);
 
     const sugestao = document.getElementById("sugestaoBox");
     sugestao.textContent = texto;
@@ -127,11 +117,12 @@
       const el = document.createElement("div");
       el.className = "bolaHist " + (
         n === 0 ? "brancoHist" :
-        n <= 7 ? "pretoHist" : "vermelhoHist"
+        n === 2 ? "pretoHist" : "vermelhoHist"
       );
       histBox.appendChild(el);
     });
   }
 
-  setInterval(atualizarPainel, 1000);
+  setInterval(atualizarPainel, 3000);
+  atualizarPainel(); // inicial
 })();
