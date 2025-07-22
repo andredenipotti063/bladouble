@@ -77,6 +77,7 @@
     const sugestao = document.getElementById("sugestaoBox");
     sugestao.textContent = texto;
     sugestao.style.background = cor;
+    sugestao.style.color = (cor === "white" ? "#000" : "#fff");
 
     const box = document.getElementById("historicoBox");
     box.innerHTML = "";
