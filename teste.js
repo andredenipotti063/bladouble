@@ -28,6 +28,7 @@
 
   const historico = [];
   let ultimoId = null;
+  let ultimaPrevisao = null;
 
   async function fetchLast() {
     try {
@@ -39,7 +40,15 @@
       if (id && cor !== undefined && id !== ultimoId) {
         historico.unshift(cor);
         if (historico.length > 50) historico.pop();
+
+        // Validação da previsão
+        if (ultimaPrevisao && ultimaPrevisao.id !== id) {
+          const acertou = (cor === ultimaPrevisao.cor);
+          console.log(`🎯 Previsão anterior: ${ultimaPrevisao.texto} | Resultado: ${cor} => ${acertou ? "✅ ACERTOU" : "❌ ERROU"}`);
+        }
+
         ultimoId = id;
+        atualizarPainel();
       }
     } catch (e) {
       console.error("❌ Erro ao buscar a API:", e);
@@ -86,12 +95,12 @@
       el.className = "bolaHist " + (n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist");
       box.appendChild(el);
     });
+
+    // Salva a previsão atual com ID
+    ultimaPrevisao = { cor, texto, id: ultimoId };
   }
 
   // 🔁 Loop
-  await fetchLast(); atualizarPainel();
-  setInterval(async () => {
-    await fetchLast();
-    atualizarPainel();
-  }, 3000);
+  await fetchLast();
+  setInterval(fetchLast, 3000);
 })();
