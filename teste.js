@@ -57,66 +57,58 @@
 
   const historico = [];
   let ultimoId = null;
+  let ultimaEntrada = null;
   let ultimaPrevisao = null;
   let acertos = 0, erros = 0;
 
-  // Memória dos padrões no navegador
+  // IA simples: memória de padrões aprendidos
   const memoria = JSON.parse(localStorage.getItem("memoriaBlaze") || "{}");
 
   function salvarMemoria() {
     localStorage.setItem("memoriaBlaze", JSON.stringify(memoria));
   }
 
-  async function fetchLast() {
+  async function treinarInicial() {
     try {
-      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
+      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/100");
       const data = await res.json();
-      const cor = data[0]?.color;
-      const id = data[0]?.id;
+      const lista = data.map(g => g.color).reverse();
 
-      if (id && cor !== undefined && id !== ultimoId) {
-        historico.unshift(cor);
-        if (historico.length > 50) historico.pop();
-
-        // Aprendizado se houver previsão anterior
-        if (ultimaPrevisao !== null) {
-          const input = historico.slice(1, 6).join("-");
-          if (!memoria[input]) memoria[input] = { "0": 0, "1": 0, "2": 0 };
-          memoria[input][cor]++;
-          salvarMemoria();
-
-          if (cor === ultimaPrevisao) acertos++;
-          else erros++;
-        }
-
-        ultimoId = id;
-        atualizarPainel();
+      for (let i = 0; i < lista.length - 5; i++) {
+        const entrada = lista.slice(i, i + 5).join("-");
+        const saida = lista[i + 5];
+        if (!memoria[entrada]) memoria[entrada] = { "0": 0, "1": 0, "2": 0 };
+        memoria[entrada][saida]++;
       }
+      salvarMemoria();
+      console.log("✅ Treinamento inicial concluído.");
     } catch (e) {
-      console.error("❌ Erro ao buscar API:", e);
+      console.error("Erro no treinamento inicial:", e);
     }
   }
 
-  function prever(h) {
-    if (h.length < 6) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
+  function preverIA(h) {
+    if (h.length < 5) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
 
     const entrada = h.slice(0, 5).join("-");
-    const padrao = memoria[entrada];
-    if (padrao) {
-      const max = Object.entries(padrao).reduce((a, b) => (b[1] > a[1] ? b : a));
-      const cor = max[0];
-      const corNome = cor == 0 ? "⚪️ Branco" : cor == 1 ? "🔴 Vermelho" : "⚫ Preto";
-      const corHex = cor == 0 ? "white" : cor == 1 ? "red" : "black";
-      return { cor: corHex, texto: `🧠 Padrão detectado: ${corNome}`, previsao: Number(cor) };
-    }
+    const saida = memoria[entrada];
 
-    return { cor: "#666", texto: "🤖 Aguardando aprender padrão...", previsao: null };
+    if (!saida) return { cor: "#333", texto: "🔍 Aguardando aprender padrão", previsao: null };
+
+    const maisProvavel = Object.entries(saida).reduce((a, b) => (a[1] > b[1] ? a : b))[0];
+    const cor = maisProvavel === "0" ? "white" : maisProvavel === "1" ? "red" : "black";
+    const label = maisProvavel === "0" ? "⚪️ Alerta de Branco" :
+                  maisProvavel === "1" ? "🤖 IA: Apostar Vermelho" :
+                  "🤖 IA: Apostar Preto";
+
+    return { cor, texto: label, previsao: parseInt(maisProvavel) };
   }
 
   function atualizarPainel() {
     const ult = historico.slice(0, 12);
-    const { cor, texto, previsao } = prever(historico);
+    const { cor, texto, previsao } = preverIA(historico);
     ultimaPrevisao = previsao;
+    ultimaEntrada = historico.slice(0, 5).join("-");
 
     const sugestao = document.getElementById("sugestaoBox");
     sugestao.textContent = texto;
@@ -136,6 +128,35 @@
     document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
   }
 
+  async function fetchLast() {
+    try {
+      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
+      const data = await res.json();
+      const cor = data[0]?.color;
+      const id = data[0]?.id;
+
+      if (id && cor !== undefined && id !== ultimoId) {
+        historico.unshift(cor);
+        if (historico.length > 100) historico.pop();
+
+        if (ultimaPrevisao !== null && ultimaEntrada) {
+          if (!memoria[ultimaEntrada]) memoria[ultimaEntrada] = { "0": 0, "1": 0, "2": 0 };
+          memoria[ultimaEntrada][cor]++;
+          salvarMemoria();
+
+          if (cor === ultimaPrevisao) acertos++;
+          else erros++;
+        }
+
+        ultimoId = id;
+        atualizarPainel();
+      }
+    } catch (e) {
+      console.error("❌ Erro ao buscar API:", e);
+    }
+  }
+
+  await treinarInicial();
   await fetchLast();
   setInterval(fetchLast, 3000);
 })();
