@@ -1,55 +1,35 @@
 (async function () {
   if (document.getElementById("doubleBlackPainel")) return;
 
-  // CSS
+  // ESTILO
   const style = document.createElement("style");
   style.innerHTML = `
     #doubleBlackPainel {
-      position: absolute;
-      top: 30px; left: 30px;
+      position: absolute; top: 30px; left: 30px;
       background: #111; color: #fff;
-      padding: 15px;
-      border-radius: 10px;
-      z-index: 9999;
-      font-family: Arial, sans-serif;
-      width: 280px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.4);
-      cursor: move;
+      padding: 15px; border-radius: 10px;
+      z-index: 9999; font-family: Arial, sans-serif;
+      width: 280px; box-shadow: 0 0 10px rgba(0,0,0,0.4); cursor: move;
     }
-    #doubleBlackPainel h1 {
-      margin: 0 0 10px; font-size: 16px; text-align: center;
-    }
+    #doubleBlackPainel h1 { margin: 0 0 10px; font-size: 16px; text-align: center; }
     #sugestaoBox {
-      padding: 10px;
-      text-align: center;
-      font-weight: bold;
-      border-radius: 8px;
-      background-color: #222;
-      margin-bottom: 10px;
+      padding: 10px; text-align: center;
+      font-weight: bold; border-radius: 8px;
+      background-color: #222; margin-bottom: 10px;
     }
     #historicoBox {
-      display: flex;
-      gap: 4px;
-      justify-content: center;
-      flex-wrap: wrap;
-      margin-bottom: 10px;
+      display: flex; gap: 4px; justify-content: center;
+      flex-wrap: wrap; margin-bottom: 10px;
     }
-    .bolaHist {
-      width: 20px; height: 20px;
-      border-radius: 50%;
-    }
+    .bolaHist { width: 20px; height: 20px; border-radius: 50%; }
     .pretoHist { background: black; }
     .vermelhoHist { background: red; }
     .brancoHist { background: white; border: 1px solid #999; }
-    #acertosBox {
-      text-align: center;
-      font-size: 14px;
-      margin-top: 5px;
-    }
+    #acertosBox { text-align: center; font-size: 14px; margin-top: 5px; }
   `;
   document.head.appendChild(style);
 
-  // HTML Painel
+  // HTML PAINEL
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
@@ -60,7 +40,7 @@
   `;
   document.body.appendChild(painel);
 
-  // Tornar Painel Arrastável
+  // Movimento do painel
   let isDragging = false, offsetX = 0, offsetY = 0;
   painel.addEventListener("mousedown", (e) => {
     isDragging = true;
@@ -78,8 +58,7 @@
   const historico = [];
   let ultimoId = null;
   let ultimaPrevisao = null;
-  let acertos = 0;
-  let erros = 0;
+  let acertos = 0, erros = 0;
 
   async function fetchLast() {
     try {
@@ -106,24 +85,27 @@
   }
 
   function prever(h) {
-    if (h.length < 5) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
+    if (h.length < 7) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
 
-    const ult3 = h.slice(0, 3);
-    const ult5 = h.slice(0, 5);
-    const ult10 = h.slice(0, 10);
-    const totalBrancos = h.filter(n => n === 0).length;
+    const ult7 = h.slice(0, 7);
+    const ult40 = h.slice(0, 40);
+    const count = (arr, val) => arr.filter(n => n === val).length;
 
-    if (ult3.every(n => n === 1)) return { cor: "black", texto: "🔁 Inversão: Apostar Preto", previsao: 2 };
-    if (ult3.every(n => n === 2)) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho", previsao: 1 };
+    // Inversão se 4 ou mais seguidos forem da mesma cor
+    if (ult7.slice(0, 4).every(n => n === 2)) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho", previsao: 1 };
+    if (ult7.slice(0, 4).every(n => n === 1)) return { cor: "black", texto: "🔁 Inversão: Apostar Preto", previsao: 2 };
 
-    const pretos = ult10.filter(n => n === 2).length;
-    const vermelhos = ult10.filter(n => n === 1).length;
-    if (pretos >= 7) return { cor: "red", texto: "📊 Tendência Preto → Vermelho", previsao: 1 };
-    if (vermelhos >= 7) return { cor: "black", texto: "📊 Tendência Vermelho → Preto", previsao: 2 };
+    // Tendência se 5 ou mais de 7 forem da mesma cor
+    const pretos = count(ult7, 2);
+    const vermelhos = count(ult7, 1);
+    if (pretos >= 5) return { cor: "red", texto: "📊 Tendência Preto → Vermelho", previsao: 1 };
+    if (vermelhos >= 5) return { cor: "black", texto: "📊 Tendência Vermelho → Preto", previsao: 2 };
 
-    const ult20 = h.slice(0, 20);
-    if (!ult20.includes(0)) return { cor: "white", texto: "⚪️ Alerta de Branco", previsao: 0 };
+    // Branco se não saiu em 40 rodadas e a última previsão não foi branco
+    if (!ult40.includes(0) && ultimaPrevisao !== 0)
+      return { cor: "white", texto: "⚪️ Alerta de Branco", previsao: 0 };
 
+    // Probabilidade comum
     return pretos > vermelhos
       ? { cor: "red", texto: "🤖 Probabilidade: Vermelho", previsao: 1 }
       : { cor: "black", texto: "🤖 Probabilidade: Preto", previsao: 2 };
