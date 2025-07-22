@@ -1,7 +1,6 @@
 (async function () {
   if (document.getElementById("doubleBlackPainel")) return;
 
-  // 🔹 Estilo do painel
   const style = document.createElement("style");
   style.innerHTML = `
     #doubleBlackPainel { position:fixed; top:30px; right:30px; background:#111; color:#fff;
@@ -18,35 +17,32 @@
   `;
   document.head.appendChild(style);
 
-  // 🔹 Elementos
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
     <h1>🔮 Previsão Inteligente</h1>
-    <div id="sugestaoBox">⏳ Aguardando dados...</div>
+    <div id="sugestaoBox">⏳ Coletando dados...</div>
     <div id="historicoBox"></div>
   `;
   document.body.appendChild(painel);
 
-  // 🔢 Histórico local
   const historico = [];
+  let ultimoId = null;
 
   async function fetchLast() {
     try {
       const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
       const data = await res.json();
-      const color = data[0]?.color;
+      const cor = data[0]?.color;
+      const id = data[0]?.id;
 
-      if (color === 0 || color === 1 || color === 2) {
-        if (historico[0] !== color) {
-          historico.unshift(color);
-          if (historico.length > 50) historico.pop();
-        }
-      } else {
-        console.warn("⚠️ Color inválido ou API vazia:", data);
+      if (id && cor !== undefined && id !== ultimoId) {
+        historico.unshift(cor);
+        if (historico.length > 50) historico.pop();
+        ultimoId = id;
       }
     } catch (e) {
-      console.error("❌ Erro ao buscar API:", e);
+      console.error("❌ Erro ao buscar a API:", e);
     }
   }
 
