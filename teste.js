@@ -56,7 +56,10 @@
   document.body.appendChild(painel);
 
   function getHistorico(limit = 50) {
-    const tiles = Array.from(document.querySelectorAll('[class*="tile"]')).slice(0, limit);
+    const tiles = Array.from(document.querySelectorAll('[class*="tile"]'))
+      .filter(el => el.textContent.trim() !== "")
+      .slice(0, limit);
+
     return tiles.map(tile => {
       const cor = window.getComputedStyle(tile).backgroundColor;
       const numero = parseInt(tile.textContent.trim()) || 0;
@@ -65,7 +68,7 @@
       if (cor.includes("0, 0, 0")) return numero || 2;    // Preto
       if (cor.includes("255, 0, 0")) return numero || 9;  // Vermelho
 
-      return 0; // fallback
+      return numero; // fallback
     });
   }
 
@@ -109,8 +112,9 @@
   }
 
   function atualizarPainel() {
-    const ultimos = getHistorico(12);
-    const ultimos50 = getHistorico(50);
+    const ultimos = getHistorico(50).reverse();
+    const ultimos50 = [...ultimos];
+
     const { cor, texto } = prever(ultimos, ultimos50);
 
     const sugestao = document.getElementById("sugestaoBox");
@@ -119,7 +123,7 @@
 
     const histBox = document.getElementById("historicoBox");
     histBox.innerHTML = "";
-    ultimos.slice(0, 12).reverse().forEach(n => {
+    ultimos.slice(0, 12).forEach(n => {
       const el = document.createElement("div");
       el.className = "bolaHist " + (
         n === 0 ? "brancoHist" :
