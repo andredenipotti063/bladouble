@@ -1,124 +1,131 @@
-(function () {
-  if (document.getElementById("doubleBlackPainel")) return;
+// --- Configuração visual (CSS e painel flutuante) omitida por brevidade ---
 
-  const style = document.createElement("style");
-  style.innerHTML = `
-    @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600&display=swap');
-    @keyframes neonGlow {
-      0% { box-shadow: 0 0 5px #00ff00; }
-      50% { box-shadow: 0 0 20px #00ff00; }
-      100% { box-shadow: 0 0 5px #00ff00; }
-    }
-  `;
-  document.head.appendChild(style);
+// Função que retorna os últimos n resultados (0 = branco, 1‑7 = preto, 8‑14 = vermelho)
+function coletarHistorico(max = 10) {
+  const tiles = Array.from(document.querySelectorAll("#roulette-recent.entry .roulette-tile"))
+                     .slice(0, max).reverse();
+  return tiles
+    .map(tile => {
+      const txt = tile.innerText.trim();
+      const num = txt === "" ? parseInt(tile.querySelector(".time-left span")?.textContent) : parseInt(txt);
+      return isNaN(num) ? null : num;
+    })
+    .filter(n => n !== null);
+}
 
-  const painel = document.createElement("div");
-  painel.id = "doubleBlackPainel";
-  painel.style = `
-    position: fixed;
-    top: 100px;
-    left: 20px;
-    background: black;
-    color: white;
-    padding: 20px;
-    border-radius: 15px;
-    font-family: 'Orbitron', sans-serif;
-    z-index: 999999;
-    width: 300px;
-    animation: neonGlow 2s infinite;
-    box-shadow: 0 0 20px #00ff00;
-    text-align: center;
-  `;
-
-  painel.innerHTML = `
-    <img src="https://i.imgur.com/NjvNOAf.png" style="width: 80px; height: 80px; margin-bottom: 10px; border-radius: 10px;" />
-    <div style="color:#00ff00; font-size: 14px;">@doubleeblack00</div>
-    <h2 style="margin: 10px 0; font-size: 20px;">Double Black</h2>
-    <div style="margin: 10px 0;">
-      <strong style="color: white;">Chance:</strong> <span id="chancePorcentagem" style="color: #00ff00;">--%</span>
-    </div>
-    <div id="corSugestao" style="font-size: 30px; margin-bottom: 10px;">...</div>
-    <div id="ultimos" style="display:flex;justify-content:center;gap:5px;"></div>
-  `;
-  document.body.appendChild(painel);
-
-  function getEmoji(cor) {
-    if (cor === 'red') return '🔴';
-    if (cor === 'black') return '⚫️';
-    if (cor === 'white') return '⚪️';
-    return '❓';
+// Lógica avançada de previsão
+function preverInteligente(ultimos, ultimos50 = []) {
+  if (!ultimos || ultimos.length < 10) {
+    return { cor: "#444", texto: "🔍 Aguardando mais dados..." };
   }
 
-  function preverMelhorado(cores) {
-    const freq = { red: 0, black: 0, white: 0 };
-    cores.forEach(cor => { freq[cor] = (freq[cor] || 0) + 1; });
+  const u5 = ultimos.slice(0, 5);
+  const u10 = ultimos.slice(0, 10);
+  const branco10 = u10.filter(n => n === 0).length;
+  const preto10 = u10.filter(n => n >= 1 && n <= 7).length;
+  const vermelho10 = u10.filter(n => n >= 8).length;
 
-    const ultCor = cores[0] === 'white' ? cores[1] : cores[0];
+  // 1. Sequência longa → inversão
+  if (u5.every(n => n >= 1 && n <= 7)) return { cor: "vermelho", texto: "🔁 Reversão (sequência de Preto)" };
+  if (u5.every(n => n >= 8)) return { cor: "preto", texto: "🔁 Reversão (sequência de Vermelho)" };
 
-    const sequencia = [];
-    for (let i = 0; i < cores.length - 1; i++) {
-      if (cores[i] === cores[i + 1]) {
-        sequencia.push(cores[i]);
-      } else {
-        break;
-      }
-    }
-
-    if (sequencia.length >= 2) {
-      return sequencia[0] === 'red' ? '⚫️' : '🔴';
-    }
-
-    if (freq.red > freq.black) return '⚫️';
-    if (freq.black > freq.red) return '🔴';
-
-    return ultCor === 'red' ? '⚫️' : '🔴';
+  // 2. Alternância zig-zag
+  const alt = u5.map(n => n === 0 ? 'b' : (n <= 7 ? 'p' : 'v')).join('');
+  if (/^(pv){2,}$|^(vp){2,}$/.test(alt)) {
+    const ultima = u5[0];
+    return ultima <= 7 ? { cor: "vermelho", texto: "🔄 Alternância detectada – Vermelho" }
+                       : { cor: "preto", texto: "🔄 Alternância detectada – Preto" };
   }
 
-  function obterUltimosResultadosDOM() {
-    const bolas = Array.from(document.querySelectorAll('.entry .color'))
-      .slice(0, 6)
-      .map(el => {
-        const bg = el.style.backgroundColor;
-        if (bg.includes('255, 0, 0')) return 'red';
-        if (bg.includes('0, 0, 0') || bg.includes('51, 51, 51')) return 'black';
-        if (bg.includes('255, 255, 255')) return 'white';
-        return 'unknown';
-      });
-    return bolas;
+  // 3. Predomínio em 10 últimas
+  if (preto10 >= 7) return { cor: "vermelho", texto: "📊 Predomínio Preto → Apostar Vermelho" };
+  if (vermelho10 >= 7) return { cor: "preto", texto: "📊 Predomínio Vermelho → Apostar Preto" };
+
+  // 4. Oportunidade de branco raro
+  const branco50 = ultimos50.filter(n => n === 0).length;
+  if (branco50 <= 1 && ultimos[0] !== 0) {
+    return { cor: "white", texto: "⚪️ Branco raro possível!" };
   }
 
-  function atualizar() {
-    try {
-      const ultimos = obterUltimosResultadosDOM();
-      if (ultimos.length === 0) return;
+  // 5. Sem chance clara
+  return { cor: "#444", texto: "🕒 Sem oportunidade confiável" };
+}
 
-      const sugestao = preverMelhorado(ultimos);
-      document.getElementById("corSugestao").innerText = sugestao;
+// Rotina principal — roda a cada 2 segundos
+let idAnterior = null;
+let corSugestaoAnterior = null;
 
-      const ultDiv = document.getElementById("ultimos");
-      ultDiv.innerHTML = '';
-      ultimos.slice().reverse().forEach(cor => {
-        const box = document.createElement("div");
-        box.textContent = getEmoji(cor);
-        box.style = `
-          padding: 6px 10px;
-          border-radius: 6px;
-          font-size: 18px;
-          background: ${cor === 'red' ? '#ff0000' : cor === 'black' ? '#333' : '#fff'};
-          color: ${cor === 'white' ? '#000' : '#fff'};
-        `;
-        ultDiv.appendChild(box);
-      });
+async function atualizar() {
+  // Coleta histórico e dados da UI
+  const hist10 = coletarHistorico(10);
+  const hist50 = coletarHistorico(50);
 
-      const diff = Math.abs(ultimos.filter(c => c === 'red').length - ultimos.filter(c => c === 'black').length);
-      const chanceEstimativa = 70 + diff * 5;
-      document.getElementById("chancePorcentagem").innerText = `${Math.min(chanceEstimativa, 95)}%`;
+  const resp = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
+  const json = await resp.json();
+  const jogo = json[0];
+  if (!jogo || jogo.id === idAnterior) return;
 
-    } catch (err) {
-      console.error('Erro ao ler resultados:', err);
-    }
+  idAnterior = jogo.id;
+  const num = jogo.roll;
+  document.getElementById("resultNumberCircle").textContent = num;
+
+  // Atualiza visual do resultado
+  const resultado = num === 0 ? "⚪ Branco" : (num <= 7 ? "⬛ Preto" : "🟥 Vermelho");
+  document.getElementById("legendaResultado").textContent = "Resultado: " + resultado;
+  document.getElementById("resultNumberCircle").style.background = (num === 0 ? "#1d2027" : (num <= 7 ? "#000" : "#dc3545"));
+  
+  // Sugere aposta
+  const sugestao = preverInteligente(hist10, hist50);
+  const box = document.getElementById("sugestaoBox");
+  box.textContent = sugestao.texto;
+  box.style.background = sugestao.cor;
+
+  // Animação de vitória/derrota
+  if (corSugestaoAnterior && sugestao.cor === corSugestaoAnterior) {
+    // ganhou
+    mostrarResultadoAnimado("win");
+  } else if (corSugestaoAnterior && sugestao.cor !== corSugestaoAnterior && sugestao.cor !== "#444") {
+    mostrarResultadoAnimado("lose");
   }
+  corSugestaoAnterior = sugestao.cor;
+}
 
-  atualizar();
-  setInterval(atualizar, 5000);
-})();
+// Função de animação
+function mostrarResultadoAnimado(tipo) {
+  const div = document.createElement("div");
+  div.id = "resultadoFinalBox";
+  div.textContent = tipo === "win" ? "✅ GANHOU" : "❌ PERDEU";
+  div.style.cssText = tipo === "win"
+    ? "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;padding:20px;background:#28a745;color:white;border-radius:8px;animation:fall 2.5s linear forwards;"
+    : "position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);font-size:24px;padding:20px;background:#dc3545;color:white;border-radius:8px;animation:fall 2.5s linear forwards;";
+  document.body.appendChild(div);
+  if (tipo === "win") criarConfetes();
+  setTimeout(() => div.remove(), 1000);
+}
+
+// Função de confetes
+function criarConfetes() {
+  const wrapper = document.createElement("div");
+  wrapper.id = "confettiWrapper";
+  Object.assign(wrapper.style, {
+    position: "fixed", top: "0", left: "0", width: "100%", height: "100%",
+    pointerEvents: "none", zIndex: 99998
+  });
+  for (let i = 0; i < 32; i++) {
+    let d = document.createElement("div");
+    d.textContent = "💸";
+    Object.assign(d.style, {
+      position: "absolute",
+      top: Math.random() * 100 + "%",
+      left: Math.random() * 100 + "%",
+      fontSize: (12 + Math.random() * 16) + "px",
+      animation: "fall 2.5s linear forwards"
+    });
+    wrapper.appendChild(d);
+  }
+  document.body.appendChild(wrapper);
+  setTimeout(() => wrapper.remove(), 1000);
+}
+
+// Inicia intervalo
+setInterval(atualizar, 2000);
