@@ -60,6 +60,13 @@
   let ultimaPrevisao = null;
   let acertos = 0, erros = 0;
 
+  // Memória dos padrões no navegador
+  const memoria = JSON.parse(localStorage.getItem("memoriaBlaze") || "{}");
+
+  function salvarMemoria() {
+    localStorage.setItem("memoriaBlaze", JSON.stringify(memoria));
+  }
+
   async function fetchLast() {
     try {
       const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
@@ -71,7 +78,13 @@
         historico.unshift(cor);
         if (historico.length > 50) historico.pop();
 
+        // Aprendizado se houver previsão anterior
         if (ultimaPrevisao !== null) {
+          const input = historico.slice(1, 6).join("-");
+          if (!memoria[input]) memoria[input] = { "0": 0, "1": 0, "2": 0 };
+          memoria[input][cor]++;
+          salvarMemoria();
+
           if (cor === ultimaPrevisao) acertos++;
           else erros++;
         }
@@ -85,30 +98,19 @@
   }
 
   function prever(h) {
-    if (h.length < 7) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
+    if (h.length < 6) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
 
-    const ult7 = h.slice(0, 7);
-    const ult40 = h.slice(0, 40);
-    const count = (arr, val) => arr.filter(n => n === val).length;
+    const entrada = h.slice(0, 5).join("-");
+    const padrao = memoria[entrada];
+    if (padrao) {
+      const max = Object.entries(padrao).reduce((a, b) => (b[1] > a[1] ? b : a));
+      const cor = max[0];
+      const corNome = cor == 0 ? "⚪️ Branco" : cor == 1 ? "🔴 Vermelho" : "⚫ Preto";
+      const corHex = cor == 0 ? "white" : cor == 1 ? "red" : "black";
+      return { cor: corHex, texto: `🧠 Padrão detectado: ${corNome}`, previsao: Number(cor) };
+    }
 
-    // Inversão se 4 ou mais seguidos forem da mesma cor
-    if (ult7.slice(0, 4).every(n => n === 2)) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho", previsao: 1 };
-    if (ult7.slice(0, 4).every(n => n === 1)) return { cor: "black", texto: "🔁 Inversão: Apostar Preto", previsao: 2 };
-
-    // Tendência se 5 ou mais de 7 forem da mesma cor
-    const pretos = count(ult7, 2);
-    const vermelhos = count(ult7, 1);
-    if (pretos >= 5) return { cor: "red", texto: "📊 Tendência Preto → Vermelho", previsao: 1 };
-    if (vermelhos >= 5) return { cor: "black", texto: "📊 Tendência Vermelho → Preto", previsao: 2 };
-
-    // Branco se não saiu em 40 rodadas e a última previsão não foi branco
-    if (!ult40.includes(0) && ultimaPrevisao !== 0)
-      return { cor: "white", texto: "⚪️ Alerta de Branco", previsao: 0 };
-
-    // Probabilidade comum
-    return pretos > vermelhos
-      ? { cor: "red", texto: "🤖 Probabilidade: Vermelho", previsao: 1 }
-      : { cor: "black", texto: "🤖 Probabilidade: Preto", previsao: 2 };
+    return { cor: "#666", texto: "🤖 Aguardando aprender padrão...", previsao: null };
   }
 
   function atualizarPainel() {
