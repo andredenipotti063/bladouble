@@ -1,7 +1,6 @@
 (function () {
   if (document.getElementById("doubleBlackPainel")) return;
 
-  // ESTILO
   const style = document.createElement("style");
   style.innerHTML = `
     @import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@600&display=swap');
@@ -13,7 +12,6 @@
   `;
   document.head.appendChild(style);
 
-  // PAINEL
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.style = `
@@ -44,7 +42,6 @@
   `;
   document.body.appendChild(painel);
 
-  // EMOJIS
   function getEmoji(cor) {
     if (cor === 'red') return '🔴';
     if (cor === 'black') return '⚫️';
@@ -52,9 +49,7 @@
     return '❓';
   }
 
-  // NOVA LÓGICA INTELIGENTE
-  function preverMelhorado(resultados) {
-    const cores = resultados.map(r => r.color);
+  function preverMelhorado(cores) {
     const freq = { red: 0, black: 0, white: 0 };
     cores.forEach(cor => { freq[cor] = (freq[cor] || 0) + 1; });
 
@@ -69,7 +64,6 @@
       }
     }
 
-    // Estratégia:
     if (sequencia.length >= 2) {
       return sequencia[0] === 'red' ? '⚫️' : '🔴';
     }
@@ -77,42 +71,51 @@
     if (freq.red > freq.black) return '⚫️';
     if (freq.black > freq.red) return '🔴';
 
-    return ultCor === 'red' ? '⚫️' : '🔴'; // fallback
+    return ultCor === 'red' ? '⚫️' : '🔴';
   }
 
-  // ATUALIZAR PAINEL
-  async function atualizar() {
+  function obterUltimosResultadosDOM() {
+    const bolas = Array.from(document.querySelectorAll('.entry .color'))
+      .slice(0, 6)
+      .map(el => {
+        const bg = el.style.backgroundColor;
+        if (bg.includes('255, 0, 0')) return 'red';
+        if (bg.includes('0, 0, 0') || bg.includes('51, 51, 51')) return 'black';
+        if (bg.includes('255, 255, 255')) return 'white';
+        return 'unknown';
+      });
+    return bolas;
+  }
+
+  function atualizar() {
     try {
-      const res = await fetch('https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/6');
-      const resultados = await res.json();
+      const ultimos = obterUltimosResultadosDOM();
+      if (ultimos.length === 0) return;
 
-      if (!Array.isArray(resultados) || resultados.length === 0) return;
-
-      const sugestao = preverMelhorado(resultados);
+      const sugestao = preverMelhorado(ultimos);
       document.getElementById("corSugestao").innerText = sugestao;
 
-      const ultimos = document.getElementById("ultimos");
-      ultimos.innerHTML = '';
-      resultados.reverse().forEach(res => {
+      const ultDiv = document.getElementById("ultimos");
+      ultDiv.innerHTML = '';
+      ultimos.slice().reverse().forEach(cor => {
         const box = document.createElement("div");
-        box.textContent = getEmoji(res.color);
+        box.textContent = getEmoji(cor);
         box.style = `
           padding: 6px 10px;
           border-radius: 6px;
           font-size: 18px;
-          background: ${res.color === 'red' ? '#ff0000' : res.color === 'black' ? '#333' : '#fff'};
-          color: ${res.color === 'white' ? '#000' : '#fff'};
+          background: ${cor === 'red' ? '#ff0000' : cor === 'black' ? '#333' : '#fff'};
+          color: ${cor === 'white' ? '#000' : '#fff'};
         `;
-        ultimos.appendChild(box);
+        ultDiv.appendChild(box);
       });
 
-      // Exibir chance estimada (simples: quanto maior o desequilíbrio, maior a chance)
-      const diff = Math.abs(resultados.filter(r => r.color === 'red').length - resultados.filter(r => r.color === 'black').length);
-      const chanceEstimativa = 70 + diff * 5; // base 70%, aumenta se houver padrão forte
+      const diff = Math.abs(ultimos.filter(c => c === 'red').length - ultimos.filter(c => c === 'black').length);
+      const chanceEstimativa = 70 + diff * 5;
       document.getElementById("chancePorcentagem").innerText = `${Math.min(chanceEstimativa, 95)}%`;
 
     } catch (err) {
-      console.error('Erro ao atualizar resultados:', err);
+      console.error('Erro ao ler resultados:', err);
     }
   }
 
