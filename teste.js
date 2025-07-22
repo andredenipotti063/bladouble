@@ -40,75 +40,93 @@
   `;
   document.body.appendChild(painel);
 
-  // Movimento do painel
+  // Movimento do painel (mouse + toque)
   let isDragging = false, offsetX = 0, offsetY = 0;
+  function onMove(x, y) {
+    if (isDragging) {
+      painel.style.left = x - offsetX + "px";
+      painel.style.top = y - offsetY + "px";
+    }
+  }
   painel.addEventListener("mousedown", (e) => {
     isDragging = true;
     offsetX = e.clientX - painel.offsetLeft;
     offsetY = e.clientY - painel.offsetTop;
   });
   document.addEventListener("mouseup", () => isDragging = false);
-  document.addEventListener("mousemove", (e) => {
-    if (isDragging) {
-      painel.style.left = e.clientX - offsetX + "px";
-      painel.style.top = e.clientY - offsetY + "px";
-    }
+  document.addEventListener("mousemove", (e) => onMove(e.clientX, e.clientY));
+  painel.addEventListener("touchstart", (e) => {
+    isDragging = true;
+    const touch = e.touches[0];
+    offsetX = touch.clientX - painel.offsetLeft;
+    offsetY = touch.clientY - painel.offsetTop;
+  });
+  document.addEventListener("touchend", () => isDragging = false);
+  document.addEventListener("touchmove", (e) => {
+    const touch = e.touches[0];
+    onMove(touch.clientX, touch.clientY);
   });
 
   const historico = [];
   let ultimoId = null;
-  let ultimaEntrada = null;
   let ultimaPrevisao = null;
   let acertos = 0, erros = 0;
 
-  // IA simples: memória de padrões aprendidos
-  const memoria = JSON.parse(localStorage.getItem("memoriaBlaze") || "{}");
-
-  function salvarMemoria() {
-    localStorage.setItem("memoriaBlaze", JSON.stringify(memoria));
-  }
-
-  async function treinarInicial() {
+  async function fetchLast() {
     try {
-      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/100");
+      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
       const data = await res.json();
-      const lista = data.map(g => g.color).reverse();
+      const cor = data[0]?.color;
+      const id = data[0]?.id;
 
-      for (let i = 0; i < lista.length - 5; i++) {
-        const entrada = lista.slice(i, i + 5).join("-");
-        const saida = lista[i + 5];
-        if (!memoria[entrada]) memoria[entrada] = { "0": 0, "1": 0, "2": 0 };
-        memoria[entrada][saida]++;
+      if (id && cor !== undefined && id !== ultimoId) {
+        historico.unshift(cor);
+        if (historico.length > 100) historico.pop();
+
+        if (ultimaPrevisao !== null) {
+          if (cor === ultimaPrevisao) acertos++;
+          else erros++;
+        }
+
+        ultimoId = id;
+        atualizarPainel();
       }
-      salvarMemoria();
-      console.log("✅ Treinamento inicial concluído.");
     } catch (e) {
-      console.error("Erro no treinamento inicial:", e);
+      console.error("❌ Erro ao buscar API:", e);
     }
   }
 
-  function preverIA(h) {
-    if (h.length < 5) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
+  function prever(h) {
+    if (h.length < 7) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
 
-    const entrada = h.slice(0, 5).join("-");
-    const saida = memoria[entrada];
+    const ult7 = h.slice(0, 7);
+    const ult40 = h.slice(0, 40);
+    const count = (arr, val) => arr.filter(n => n === val).length;
 
-    if (!saida) return { cor: "#333", texto: "🔍 Aguardando aprender padrão", previsao: null };
+    // Regras de inversão
+    if (ult7.slice(0, 4).every(n => n === 2)) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho", previsao: 1 };
+    if (ult7.slice(0, 4).every(n => n === 1)) return { cor: "black", texto: "🔁 Inversão: Apostar Preto", previsao: 2 };
 
-    const maisProvavel = Object.entries(saida).reduce((a, b) => (a[1] > b[1] ? a : b))[0];
-    const cor = maisProvavel === "0" ? "white" : maisProvavel === "1" ? "red" : "black";
-    const label = maisProvavel === "0" ? "⚪️ Alerta de Branco" :
-                  maisProvavel === "1" ? "🤖 IA: Apostar Vermelho" :
-                  "🤖 IA: Apostar Preto";
+    // Tendência
+    const pretos = count(ult7, 2);
+    const vermelhos = count(ult7, 1);
+    if (pretos >= 5) return { cor: "red", texto: "📊 Tendência Preto → Vermelho", previsao: 1 };
+    if (vermelhos >= 5) return { cor: "black", texto: "📊 Tendência Vermelho → Preto", previsao: 2 };
 
-    return { cor, texto: label, previsao: parseInt(maisProvavel) };
+    // Alerta de Branco
+    if (!ult40.includes(0) && ultimaPrevisao !== 0)
+      return { cor: "white", texto: "⚪️ Alerta de Branco", previsao: 0 };
+
+    // Probabilidade comum
+    return pretos > vermelhos
+      ? { cor: "red", texto: "🤖 Probabilidade: Vermelho", previsao: 1 }
+      : { cor: "black", texto: "🤖 Probabilidade: Preto", previsao: 2 };
   }
 
   function atualizarPainel() {
     const ult = historico.slice(0, 12);
-    const { cor, texto, previsao } = preverIA(historico);
+    const { cor, texto, previsao } = prever(historico);
     ultimaPrevisao = previsao;
-    ultimaEntrada = historico.slice(0, 5).join("-");
 
     const sugestao = document.getElementById("sugestaoBox");
     sugestao.textContent = texto;
@@ -128,35 +146,6 @@
     document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
   }
 
-  async function fetchLast() {
-    try {
-      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
-      const data = await res.json();
-      const cor = data[0]?.color;
-      const id = data[0]?.id;
-
-      if (id && cor !== undefined && id !== ultimoId) {
-        historico.unshift(cor);
-        if (historico.length > 100) historico.pop();
-
-        if (ultimaPrevisao !== null && ultimaEntrada) {
-          if (!memoria[ultimaEntrada]) memoria[ultimaEntrada] = { "0": 0, "1": 0, "2": 0 };
-          memoria[ultimaEntrada][cor]++;
-          salvarMemoria();
-
-          if (cor === ultimaPrevisao) acertos++;
-          else erros++;
-        }
-
-        ultimoId = id;
-        atualizarPainel();
-      }
-    } catch (e) {
-      console.error("❌ Erro ao buscar API:", e);
-    }
-  }
-
-  await treinarInicial();
   await fetchLast();
   setInterval(fetchLast, 3000);
 })();
