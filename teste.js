@@ -58,12 +58,14 @@
   function getHistorico(limit = 50) {
     const tiles = Array.from(document.querySelectorAll('[class*="tile"]')).slice(0, limit);
     return tiles.map(tile => {
-      const classList = tile.className.toLowerCase();
-      const numero = parseInt(tile.textContent.trim());
-      if (classList.includes("white")) return 0;
-      if (classList.includes("black")) return numero <= 7 ? numero : 1;
-      if (classList.includes("red")) return numero >= 8 ? numero : 8;
-      return 0;
+      const cor = window.getComputedStyle(tile).backgroundColor;
+      const numero = parseInt(tile.textContent.trim()) || 0;
+
+      if (cor.includes("255, 255, 255")) return 0;        // Branco
+      if (cor.includes("0, 0, 0")) return numero || 2;    // Preto
+      if (cor.includes("255, 0, 0")) return numero || 9;  // Vermelho
+
+      return 0; // fallback
     });
   }
 
