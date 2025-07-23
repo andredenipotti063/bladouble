@@ -31,7 +31,7 @@
 
   // Estilo do painel
   const style = document.createElement("style");
-  style.innerHTML = `
+  style.innerHTML = 
     #blazePainelIA {
       position: fixed; top: 30px; left: 30px;
       background: #111; color: #fff;
@@ -55,13 +55,13 @@
       display: block; cursor: pointer; text-align: center; border: none;
       width: 90%;
     }
-  `;
+  ;
   document.head.appendChild(style);
 
   // Painel
   const painel = document.createElement("div");
   painel.id = "blazePainelIA";
-  painel.innerHTML = `
+  painel.innerHTML = 
     <h1>🔮 Blaze IA + Lógica</h1>
     <div id="sugestaoBox">⏳ Carregando...</div>
     <div id="historicoBox"></div>
@@ -70,7 +70,7 @@
     <div id="ultimaAcaoBox"></div>
     <button id="btnExpandir">🔼 Expandir Histórico</button>
     <button id="btnReset">🔁 Resetar Histórico</button>
-  `;
+  ;
   document.body.appendChild(painel);
 
   // Movimento do painel
@@ -199,7 +199,7 @@
     let texto = "⏳ Coletando dados...", corTexto = "#333";
 
     if (historico.length < 20) {
-      texto = `⏳ Esperando ${20 - historico.length} resultados...`;
+      texto = ⏳ Esperando ${20 - historico.length} resultados...;
     } else if (prevIA !== null && prevIA === prevTrad) {
       ultimaPrevisao = prevIA;
       texto = ["⚪ Branco", "🔴 Vermelho + ⚪", "⚫ Preto + ⚪"][prevIA];
@@ -222,8 +222,8 @@
 
     const total = acertos + erros;
     const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
-    document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
-    document.getElementById("contadorBox").textContent = `Coletados: ${historico.length}`;
+    document.getElementById("acertosBox").textContent = ✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%;
+    document.getElementById("contadorBox").textContent = Coletados: ${historico.length};
   }
 
   fetchUltimo();
