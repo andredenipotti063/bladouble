@@ -1,18 +1,32 @@
 // ==UserScript==
-// @name         Blaze IA Roleta com TensorFlow.js
+// @name         Blaze IA Roleta com TensorFlow.js (Final)
 // @namespace    http://tampermonkey.net/
-// @version      2.0
-// @description  Previsão de cores com IA (TensorFlow.js) + lógica tradicional + proteção no branco
+// @version      3.0
+// @description  Previsão com IA (TensorFlow.js) + lógica tradicional + proteção no branco + compatível com celular e PC
 // @author       ChatGPT
 // @match        https://blaze.com/pt/games/double
 // @grant        none
 // @require      https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js
 // ==/UserScript==
 
-(function () {
+(async function () {
+  // Esperar até que TensorFlow.js esteja carregado
+  function waitForTF() {
+    return new Promise(resolve => {
+      const interval = setInterval(() => {
+        if (typeof tf !== "undefined") {
+          clearInterval(interval);
+          resolve();
+        }
+      }, 100);
+    });
+  }
+
+  await waitForTF();
+
   if (document.getElementById("doubleBlackPainel")) return;
 
-  // === CSS e Painel Flutuante ===
+  // === Estilo do Painel ===
   const style = document.createElement("style");
   style.innerHTML = `
     #doubleBlackPainel {
@@ -53,7 +67,7 @@
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
-    <h1>🔮 IA Roleta Blaze</h1>
+    <h1>🔮 Previsão Inteligente</h1>
     <div id="sugestaoBox">⏳ Carregando...</div>
     <div id="historicoBox"></div>
     <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
@@ -62,36 +76,76 @@
   `;
   document.body.appendChild(painel);
 
-  // === Drag (Desktop/Mobile) ===
-  let isDragging = false, startX, startY, initialLeft, initialTop;
-  function onDragStart(x, y) {
-    isDragging = true; startX = x; startY = y;
+  // Movimentar painel
+  let isDragging = false;
+  let startX, startY, initialLeft, initialTop;
+  painel.addEventListener("mousedown", (e) => {
+    e.preventDefault(); isDragging = true;
+    startX = e.clientX; startY = e.clientY;
     initialLeft = painel.offsetLeft; initialTop = painel.offsetTop;
-  }
-  function onDragMove(x, y) {
+  });
+  document.addEventListener("mousemove", (e) => {
     if (!isDragging) return;
-    painel.style.left = initialLeft + (x - startX) + "px";
-    painel.style.top = initialTop + (y - startY) + "px";
-  }
-  painel.addEventListener("mousedown", e => { e.preventDefault(); onDragStart(e.clientX, e.clientY); });
-  document.addEventListener("mousemove", e => onDragMove(e.clientX, e.clientY));
+    const dx = e.clientX - startX, dy = e.clientY - startY;
+    painel.style.left = initialLeft + dx + "px";
+    painel.style.top = initialTop + dy + "px";
+  });
   document.addEventListener("mouseup", () => isDragging = false);
-  painel.addEventListener("touchstart", e => {
-    if (e.touches.length === 1) onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+
+  // Toque em celular
+  painel.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      isDragging = true;
+      startX = touch.clientX; startY = touch.clientY;
+      initialLeft = painel.offsetLeft; initialTop = painel.offsetTop;
+    }
   }, { passive: false });
-  document.addEventListener("touchmove", e => {
-    if (isDragging && e.touches.length === 1) onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+  document.addEventListener("touchmove", (e) => {
+    if (!isDragging || e.touches.length !== 1) return;
+    const touch = e.touches[0];
+    const dx = touch.clientX - startX, dy = touch.clientY - startY;
+    painel.style.left = initialLeft + dx + "px";
+    painel.style.top = initialTop + dy + "px";
   }, { passive: false });
   document.addEventListener("touchend", () => isDragging = false);
 
-  // === Lógica ===
+  // === IA ===
+  let model;
+  async function criarModelo() {
+    model = tf.sequential();
+    model.add(tf.layers.dense({ inputShape: [10], units: 16, activation: 'relu' }));
+    model.add(tf.layers.dense({ units: 3, activation: 'softmax' }));
+    model.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy' });
+  }
+
+  async function treinarIA(dataset) {
+    if (dataset.length < 20) return;
+    const xs = tf.tensor2d(dataset.map(d => d.entrada));
+    const ys = tf.tensor2d(dataset.map(d => d.saida));
+    await model.fit(xs, ys, { epochs: 10, verbose: 0 });
+    xs.dispose(); ys.dispose();
+  }
+
+  function preverIA(input) {
+    if (!model) return null;
+    const xs = tf.tensor2d([input]);
+    const saida = model.predict(xs);
+    const output = saida.argMax(1).dataSync()[0];
+    xs.dispose(); saida.dispose();
+    return output;
+  }
+
+  // === Lógica e Histórico ===
   let historico = JSON.parse(localStorage.getItem("historicoBlaze") || "[]");
-  let ultimoId = null, ultimaPrevisao = null, acertos = 0, erros = 0;
+  let acertos = 0, erros = 0, ultimaPrevisao = null, datasetIA = [];
 
   document.getElementById("btnReset").onclick = () => {
-    historico = []; ultimoId = null; acertos = 0; erros = 0;
+    historico = []; acertos = 0; erros = 0;
     localStorage.removeItem("historicoBlaze");
-    atualizarPainel(); mostrarAcao("Histórico resetado.");
+    datasetIA = [];
+    atualizarPainel();
+    mostrarAcao("Histórico resetado.");
   };
 
   function mostrarAcao(msg) {
@@ -100,110 +154,88 @@
     setTimeout(() => box.textContent = "", 5000);
   }
 
-  // === Modelo IA TensorFlow.js (Rede Neural Simples) ===
-  const model = tf.sequential();
-  model.add(tf.layers.dense({ inputShape: [10], units: 20, activation: "relu" }));
-  model.add(tf.layers.dense({ units: 3, activation: "softmax" }));
-  model.compile({ optimizer: "adam", loss: "categoricalCrossentropy" });
-
-  function treinarIA() {
-    if (historico.length < 30) return;
-
-    const entradas = [];
-    const saidas = [];
-
-    for (let i = 10; i < historico.length; i++) {
-      const input = historico.slice(i - 10, i).map(x => x.cor / 2); // Normalizado: 0, 0.5, 1
-      const saida = [0, 0, 0];
-      saida[historico[i].cor] = 1;
-
-      entradas.push(input);
-      saidas.push(saida);
-    }
-
-    const xs = tf.tensor2d(entradas);
-    const ys = tf.tensor2d(saidas);
-    model.fit(xs, ys, { epochs: 10, shuffle: true }).then(() => xs.dispose() && ys.dispose());
+  function entradaParaIA(h) {
+    const entrada = h.slice(0, 10).map(x => x.cor / 2); // Normalizado: 0, 0.5, 1
+    return entrada.length === 10 ? entrada : null;
   }
 
-  function preverIA() {
-    if (historico.length < 10) return null;
-    const input = tf.tensor2d([historico.slice(0, 10).map(x => x.cor / 2)]);
-    const pred = model.predict(input);
-    const idx = pred.argMax(1).dataSync()[0];
-    input.dispose(); pred.dispose();
-    return idx;
+  function saidaParaIA(cor) {
+    const output = [0, 0, 0];
+    output[cor] = 1;
+    return output;
   }
 
-  function preverTradicional(h) {
+  function logicaTradicional(h) {
     if (h.length < 7) return null;
-    const cores = h.map(x => x.cor);
-    const ult7 = cores.slice(0, 7);
-    const pretos = ult7.filter(n => n === 2).length;
-    const vermelhos = ult7.filter(n => n === 1).length;
+    const ult7 = h.slice(0, 7).map(x => x.cor);
+    const count = (arr, val) => arr.filter(x => x === val).length;
+    const pretos = count(ult7, 2);
+    const vermelhos = count(ult7, 1);
 
     if (pretos >= 5) return 1;
     if (vermelhos >= 5) return 2;
-    if (!cores.slice(0, 40).includes(0)) return 0;
+    if (!h.slice(0, 40).some(x => x.cor === 0)) return 0;
 
     return pretos > vermelhos ? 1 : 2;
   }
 
-  function preverCombinado() {
-    const ia = preverIA();
-    const tradicional = preverTradicional(historico);
-    if (ia === null || tradicional === null) return { cor: "#333", texto: "⌛ Coletando IA...", previsao: null };
-
-    if (ia === tradicional) {
-      const corTxt = ia === 0 ? "⚪️ Proteção: Branco" : ia === 1 ? "🔴 Vermelho + ⚪️" : "⚫ Preto + ⚪️";
-      const corBg = ia === 0 ? "white" : ia === 1 ? "red" : "black";
-      return { cor: corBg, texto: corTxt, previsao: ia };
-    } else {
-      return { cor: "#555", texto: "🔍 IA e lógica divergentes", previsao: null };
-    }
-  }
-
-  async function fetchLast() {
+  async function fetchRodada() {
     try {
       const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
       const data = await res.json();
-      const cor = data[0]?.color;
-      const id = data[0]?.id;
+      const rodada = data[0];
+      if (!rodada || historico.length > 0 && historico[0].id === rodada.id) return;
 
-      if (!id || cor === undefined) return;
-      if (historico[0]?.id === id) return;
-
-      historico.unshift({ cor, id });
+      historico.unshift({ cor: rodada.color, id: rodada.id });
       localStorage.setItem("historicoBlaze", JSON.stringify(historico));
+
       if (ultimaPrevisao !== null) {
-        if (cor === ultimaPrevisao) acertos++;
+        if (ultimaPrevisao === rodada.color) acertos++;
         else erros++;
       }
 
-      ultimoId = id;
-      treinarIA();
+      const entrada = entradaParaIA(historico);
+      if (entrada) {
+        const saida = saidaParaIA(rodada.color);
+        datasetIA.push({ entrada, saída: saida });
+        if (datasetIA.length >= 20) await treinarIA(datasetIA);
+      }
+
       atualizarPainel();
     } catch (e) {
-      console.error("Erro na API:", e);
+      console.error("Erro ao buscar rodada:", e);
     }
   }
 
   function atualizarPainel() {
-    const ult = historico.slice(0, 12).map(x => x.cor);
-    const { cor, texto, previsao } = preverCombinado();
-    ultimaPrevisao = previsao;
+    const entradaIA = entradaParaIA(historico);
+    const prevIA = entradaIA ? preverIA(entradaIA) : null;
+    const prevTradicional = logicaTradicional(historico);
 
-    const sugestao = document.getElementById("sugestaoBox");
-    sugestao.textContent = texto;
-    sugestao.style.background = cor;
-    sugestao.style.color = cor === "white" ? "#000" : "#fff";
+    let final = null;
+    if (prevIA !== null && prevIA === prevTradicional) {
+      final = prevIA;
+    }
+
+    ultimaPrevisao = final;
+
+    const sugestaoBox = document.getElementById("sugestaoBox");
+    if (final === null) {
+      sugestaoBox.textContent = "⌛ Aguardando dados...";
+      sugestaoBox.style.background = "#333";
+    } else {
+      const corTexto = final === 0 ? "⚪️ Branco (Proteção)" : final === 1 ? "🔴 Vermelho + ⚪️" : "⚫ Preto + ⚪️";
+      sugestaoBox.textContent = `🎯 Apostar: ${corTexto}`;
+      sugestaoBox.style.background = final === 0 ? "#fff" : final === 1 ? "red" : "black";
+      sugestaoBox.style.color = final === 0 ? "#000" : "#fff";
+    }
 
     const box = document.getElementById("historicoBox");
     box.innerHTML = "";
-    ult.forEach(n => {
-      const el = document.createElement("div");
-      el.className = "bolaHist " + (n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist");
-      box.appendChild(el);
+    historico.slice(0, 12).forEach(h => {
+      const div = document.createElement("div");
+      div.className = "bolaHist " + (h.cor === 0 ? "brancoHist" : h.cor === 1 ? "vermelhoHist" : "pretoHist");
+      box.appendChild(div);
     });
 
     const total = acertos + erros;
@@ -211,6 +243,7 @@
     document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
   }
 
-  fetchLast();
-  setInterval(fetchLast, 3000);
+  await criarModelo();
+  fetchRodada();
+  setInterval(fetchRodada, 3000);
 })();
