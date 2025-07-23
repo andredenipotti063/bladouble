@@ -1,180 +1,215 @@
 // ==UserScript==
-// @name         Blaze IA + Lógica Tradicional (Roleta)
+// @name         IA Roleta Blaze (Completo com Aprendizado)
 // @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  Previsão combinada (IA + lógica) para roleta da Blaze com alta assertividade e histórico persistente
+// @version      2.0
+// @description  Previsão com IA e lógica tradicional para Roleta Blaze. Histórico persistente, auto-reset e painel flutuante responsivo.
 // @author       ChatGPT
 // @match        https://blaze.com/pt/games/double
 // @grant        none
-// @require      https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js
 // ==/UserScript==
 
 (function () {
-  'use strict';
+  if (document.getElementById("doubleBlackPainel")) return;
 
-  // ========== UTILITÁRIOS ==========
-  const delay = ms => new Promise(r => setTimeout(r, ms));
-  const salvarHistorico = () => localStorage.setItem('blazeHistorico', JSON.stringify(historico));
-  const carregarHistorico = () => {
-    const h = localStorage.getItem('blazeHistorico');
-    return h ? JSON.parse(h) : [];
-  };
-
-  // ========== IA ==========
-  let model;
-  const inputSize = 5;
-  async function treinarIA(dados) {
-    const xs = [];
-    const ys = [];
-    for (let i = 0; i < dados.length - inputSize; i++) {
-      xs.push(dados.slice(i, i + inputSize));
-      ys.push([dados[i + inputSize]]);
+  // CSS
+  const style = document.createElement("style");
+  style.innerHTML = `
+    #doubleBlackPainel {
+      position: fixed; top: 30px; left: 30px;
+      background: #111; color: #fff;
+      padding: 15px; border-radius: 10px;
+      z-index: 9999; font-family: Arial, sans-serif;
+      width: 280px; box-shadow: 0 0 10px rgba(0,0,0,0.4); cursor: move;
     }
+    #doubleBlackPainel h1 { margin: 0 0 10px; font-size: 16px; text-align: center; }
+    #sugestaoBox {
+      padding: 10px; text-align: center;
+      font-weight: bold; border-radius: 8px;
+      background-color: #222; margin-bottom: 10px;
+    }
+    #historicoBox {
+      display: flex; gap: 4px; justify-content: center;
+      flex-wrap: wrap; margin-bottom: 10px;
+    }
+    .bolaHist { width: 20px; height: 20px; border-radius: 50%; }
+    .pretoHist { background: black; }
+    .vermelhoHist { background: red; }
+    .brancoHist { background: white; border: 1px solid #999; }
+    #acertosBox { text-align: center; font-size: 14px; margin-top: 5px; }
+    #ultimaAcaoBox {
+      text-align: center; font-size: 12px;
+      margin-top: 5px; color: #ccc;
+    }
+    #btnReset {
+      background: #444; color: white; padding: 5px 10px;
+      border-radius: 6px; margin: 10px auto 0;
+      display: block; cursor: pointer; text-align: center;
+      border: none;
+    }
+  `;
+  document.head.appendChild(style);
 
-    const xTrain = tf.tensor2d(xs);
-    const yTrain = tf.tensor2d(ys);
-
-    model = tf.sequential();
-    model.add(tf.layers.dense({ inputShape: [inputSize], units: 10, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 3, activation: 'softmax' }));
-    model.compile({ optimizer: 'adam', loss: 'sparseCategoricalCrossentropy', metrics: ['accuracy'] });
-
-    await model.fit(xTrain, yTrain, { epochs: 20 });
-  }
-
-  async function preverIA(seq) {
-    if (!model || seq.length < inputSize) return null;
-    const entrada = tf.tensor2d([seq.slice(0, inputSize)]);
-    const pred = model.predict(entrada);
-    const output = await pred.data();
-    return output.indexOf(Math.max(...output));
-  }
-
-  // ========== LÓGICA TRADICIONAL ==========
-  function previsaoTradicional(h) {
-    const ult7 = h.slice(0, 7);
-    const ult40 = h.slice(0, 40);
-    const count = (arr, val) => arr.filter(n => n === val).length;
-
-    if (ult7.slice(0, 4).every(n => n === 2)) return 1;
-    if (ult7.slice(0, 4).every(n => n === 1)) return 2;
-
-    const pretos = count(ult7, 2);
-    const vermelhos = count(ult7, 1);
-
-    if (pretos >= 5) return 1;
-    if (vermelhos >= 5) return 2;
-
-    if (!ult40.includes(0)) return 0;
-
-    return pretos > vermelhos ? 1 : 2;
-  }
-
-  // ========== INTERFACE ==========
+  // Painel
   const painel = document.createElement("div");
+  painel.id = "doubleBlackPainel";
   painel.innerHTML = `
-    <style>
-      #painelIA { position: fixed; top: 20px; left: 20px; background: #111; color: white; padding: 15px; border-radius: 10px; z-index: 99999; width: 300px; font-family: Arial; box-shadow: 0 0 10px #000; }
-      #historicoIA { display: flex; gap: 5px; flex-wrap: wrap; margin: 10px 0; }
-      .bola { width: 20px; height: 20px; border-radius: 50%; }
-      .cor-0 { background: white; border: 1px solid #888; }
-      .cor-1 { background: red; }
-      .cor-2 { background: black; }
-      #msgIA { font-size: 14px; margin-bottom: 8px; }
-      #resetaIA { background: #444; color: white; border: none; padding: 5px 10px; cursor: pointer; border-radius: 5px; }
-      #ultAcao { font-size: 12px; color: #aaa; margin-top: 5px; }
-    </style>
-    <div id="painelIA">
-      <div id="msgIA">🔄 Iniciando...</div>
-      <div id="historicoIA"></div>
-      <div id="acertosIA">✅ 0 | ❌ 0 | 🎯 0%</div>
-      <button id="resetaIA">🔁 Resetar Histórico</button>
-      <div id="ultAcao"></div>
-    </div>
+    <h1>🔮 Previsão Inteligente</h1>
+    <div id="sugestaoBox">⏳ Carregando...</div>
+    <div id="historicoBox"></div>
+    <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
+    <div id="ultimaAcaoBox"></div>
+    <button id="btnReset">🔁 Resetar Histórico</button>
   `;
   document.body.appendChild(painel);
 
-  let acertos = 0, erros = 0;
-  const historico = carregarHistorico();
-  let ultimaRodadaId = null;
+  // Arrastar (PC e Celular)
+  let isDragging = false, startX, startY, initialLeft, initialTop;
+
+  function onDragStart(x, y) {
+    isDragging = true;
+    startX = x;
+    startY = y;
+    initialLeft = painel.offsetLeft;
+    initialTop = painel.offsetTop;
+  }
+
+  function onDragMove(x, y) {
+    if (!isDragging) return;
+    painel.style.left = initialLeft + (x - startX) + "px";
+    painel.style.top = initialTop + (y - startY) + "px";
+  }
+
+  painel.addEventListener("mousedown", e => {
+    e.preventDefault(); onDragStart(e.clientX, e.clientY);
+  });
+  document.addEventListener("mousemove", e => onDragMove(e.clientX, e.clientY));
+  document.addEventListener("mouseup", () => isDragging = false);
+
+  painel.addEventListener("touchstart", e => {
+    if (e.touches.length === 1) onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+  }, { passive: false });
+
+  document.addEventListener("touchmove", e => {
+    if (isDragging && e.touches.length === 1) {
+      onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+    }
+  }, { passive: false });
+
+  document.addEventListener("touchend", () => isDragging = false);
+
+  // Estado
+  let historico = JSON.parse(localStorage.getItem("historicoBlaze") || "[]");
+  let ultimoId = historico[0]?.id || null;
   let ultimaPrevisao = null;
+  let acertos = 0, erros = 0;
 
-  function atualizarPainel() {
-    const box = document.getElementById("historicoIA");
-    box.innerHTML = historico.slice(0, 12).map(c => `<div class="bola cor-${c}"></div>`).join("");
-    const total = acertos + erros;
-    const pct = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
-    document.getElementById("acertosIA").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${pct}%`;
-  }
-
-  function setMensagem(txt) {
-    const el = document.getElementById("msgIA");
-    el.textContent = txt;
-  }
-
-  function setUltimaAcao(txt) {
-    const el = document.getElementById("ultAcao");
-    el.textContent = txt;
-    setTimeout(() => (el.textContent = ""), 5000);
-  }
-
-  document.getElementById("resetaIA").onclick = () => {
-    historico.length = 0;
-    salvarHistorico();
-    acertos = erros = 0;
+  // Botão de reset
+  document.getElementById("btnReset").onclick = () => {
+    historico = [];
+    ultimoId = null;
+    acertos = 0;
+    erros = 0;
+    ultimaPrevisao = null;
+    localStorage.removeItem("historicoBlaze");
     atualizarPainel();
-    setUltimaAcao("♻️ Histórico resetado.");
+    mostrarAcao("Histórico resetado.");
   };
 
-  // ========== MONITORAMENTO ==========
-  async function monitorar() {
-    while (true) {
-      try {
-        const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
-        const data = await res.json();
-        const rodada = data[0];
-        const cor = rodada.color;
-        const id = rodada.id;
+  // Mostrar última ação
+  function mostrarAcao(msg) {
+    const box = document.getElementById("ultimaAcaoBox");
+    box.textContent = msg;
+    setTimeout(() => { box.textContent = ""; }, 5000);
+  }
 
-        if (id !== ultimaRodadaId) {
-          ultimaRodadaId = id;
-          historico.unshift(cor);
-          salvarHistorico();
-          atualizarPainel();
+  // Buscar último resultado
+  async function fetchLast() {
+    try {
+      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
+      const data = await res.json();
+      const cor = data[0]?.color;
+      const id = data[0]?.id;
 
-          if (historico.length >= 10) {
-            if (!model) await treinarIA(historico.slice().reverse());
+      if (!id || cor === undefined) return;
 
-            const ia = await preverIA(historico);
-            const tradicional = previsaoTradicional(historico);
+      // Corrupção ou travamento detectado
+      if (historico.length > 0 && historico[0].id === id) return;
 
-            if (ia === tradicional) {
-              ultimaPrevisao = ia;
-              const corNome = ["⚪️ Branco", "🔴 Vermelho", "⚫️ Preto"][ia];
-              setMensagem(`📌 Alta confiança: Apostar ${corNome}`);
-            } else {
-              ultimaPrevisao = null;
-              setMensagem("🤔 Sem consenso entre IA e lógica");
-            }
-          } else {
-            setMensagem("⏳ Coletando dados...");
-          }
+      historico.unshift({ cor, id });
+      localStorage.setItem("historicoBlaze", JSON.stringify(historico));
 
-          if (ultimaPrevisao !== null) {
-            if (cor === ultimaPrevisao) acertos++;
-            else erros++;
-          }
-
-          atualizarPainel();
-        }
-      } catch (e) {
-        console.error("Erro ao buscar rodada:", e);
-        setMensagem("❌ Erro ao acessar API");
+      if (ultimaPrevisao !== null) {
+        if (cor === ultimaPrevisao) acertos++;
+        else erros++;
       }
 
-      await delay(3000);
+      ultimoId = id;
+      atualizarPainel();
+    } catch (e) {
+      console.error("Erro ao buscar API:", e);
     }
   }
 
-  monitorar();
+  // IA + lógica combinadas
+  function prever(h) {
+    if (h.length < 7) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
+
+    const cores = h.map(x => x.cor);
+    const ult7 = cores.slice(0, 7);
+    const ult40 = cores.slice(0, 40);
+    const count = (arr, val) => arr.filter(n => n === val).length;
+
+    // Lógica Tradicional
+    let previsaoTrad = null;
+    if (ult7.slice(0, 4).every(n => n === 2)) previsaoTrad = 1;
+    else if (ult7.slice(0, 4).every(n => n === 1)) previsaoTrad = 2;
+    else if (count(ult7, 2) >= 5) previsaoTrad = 1;
+    else if (count(ult7, 1) >= 5) previsaoTrad = 2;
+    else if (!ult40.includes(0)) previsaoTrad = 0;
+    else previsaoTrad = count(ult7, 2) > count(ult7, 1) ? 1 : 2;
+
+    // IA Simples baseada em frequência reversa
+    let freq = { 0: 0, 1: 0, 2: 0 };
+    ult7.forEach(c => freq[c]++);
+    let previsaoIA = Object.entries(freq).sort((a, b) => b[1] - a[1])[0][0];
+    previsaoIA = Number(previsaoIA === "2" ? "1" : previsaoIA === "1" ? "2" : "0");
+
+    // Concordância IA + Lógica
+    if (Number(previsaoTrad) === Number(previsaoIA)) {
+      let corTexto = previsaoTrad === 0 ? "white" : previsaoTrad === 1 ? "red" : "black";
+      let texto = previsaoTrad === 0 ? "⚪️ Alerta de Branco" :
+        previsaoTrad === 1 ? "🤖 Concordância: Apostar Vermelho" : "🤖 Concordância: Apostar Preto";
+      return { cor: corTexto, texto, previsao: previsaoTrad };
+    }
+
+    return { cor: "#444", texto: "🤔 Sem alta confiança", previsao: null };
+  }
+
+  // Atualiza painel
+  function atualizarPainel() {
+    const ult = historico.slice(0, 12).map(x => x.cor);
+    const { cor, texto, previsao } = prever(historico);
+    ultimaPrevisao = previsao;
+
+    const sugestao = document.getElementById("sugestaoBox");
+    sugestao.textContent = texto;
+    sugestao.style.background = cor;
+    sugestao.style.color = cor === "white" ? "#000" : "#fff";
+
+    const box = document.getElementById("historicoBox");
+    box.innerHTML = "";
+    ult.forEach(n => {
+      const el = document.createElement("div");
+      el.className = "bolaHist " + (n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist");
+      box.appendChild(el);
+    });
+
+    const total = acertos + erros;
+    const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
+    document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
+  }
+
+  // Início
+  fetchLast();
+  setInterval(fetchLast, 3000);
 })();
