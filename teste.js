@@ -41,32 +41,49 @@
   document.body.appendChild(painel);
 
   // Movimento do painel (mouse + toque)
-  let isDragging = false, offsetX = 0, offsetY = 0;
-  function onMove(x, y) {
-    if (isDragging) {
-      painel.style.left = x - offsetX + "px";
-      painel.style.top = y - offsetY + "px";
-    }
-  }
-  painel.addEventListener("mousedown", (e) => {
-    isDragging = true;
-    offsetX = e.clientX - painel.offsetLeft;
-    offsetY = e.clientY - painel.offsetTop;
-  });
-  document.addEventListener("mouseup", () => isDragging = false);
-  document.addEventListener("mousemove", (e) => onMove(e.clientX, e.clientY));
-  painel.addEventListener("touchstart", (e) => {
-    isDragging = true;
-    const touch = e.touches[0];
-    offsetX = touch.clientX - painel.offsetLeft;
-    offsetY = touch.clientY - painel.offsetTop;
-  });
-  document.addEventListener("touchend", () => isDragging = false);
-  document.addEventListener("touchmove", (e) => {
-    const touch = e.touches[0];
-    onMove(touch.clientX, touch.clientY);
-  });
+  let isDragging = false;
+  let startX, startY, initialLeft, initialTop;
 
+  function onDragStart(x, y) {
+    isDragging = true;
+    startX = x;
+    startY = y;
+    initialLeft = painel.offsetLeft;
+    initialTop = painel.offsetTop;
+  }
+
+  function onDragMove(x, y) {
+    if (!isDragging) return;
+    const dx = x - startX;
+    const dy = y - startY;
+    painel.style.left = initialLeft + dx + "px";
+    painel.style.top = initialTop + dy + "px";
+  }
+
+  painel.addEventListener("mousedown", (e) => {
+    e.preventDefault();
+    onDragStart(e.clientX, e.clientY);
+  });
+  document.addEventListener("mousemove", (e) => onDragMove(e.clientX, e.clientY));
+  document.addEventListener("mouseup", () => isDragging = false);
+
+  painel.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      onDragStart(touch.clientX, touch.clientY);
+    }
+  }, { passive: false });
+
+  document.addEventListener("touchmove", (e) => {
+    if (isDragging && e.touches.length === 1) {
+      const touch = e.touches[0];
+      onDragMove(touch.clientX, touch.clientY);
+    }
+  }, { passive: false });
+
+  document.addEventListener("touchend", () => isDragging = false);
+
+  // Lógica de previsão
   const historico = [];
   let ultimoId = null;
   let ultimaPrevisao = null;
@@ -81,7 +98,7 @@
 
       if (id && cor !== undefined && id !== ultimoId) {
         historico.unshift(cor);
-        if (historico.length > 100) historico.pop();
+        if (historico.length > 50) historico.pop();
 
         if (ultimaPrevisao !== null) {
           if (cor === ultimaPrevisao) acertos++;
@@ -103,17 +120,17 @@
     const ult40 = h.slice(0, 40);
     const count = (arr, val) => arr.filter(n => n === val).length;
 
-    // Regras de inversão
+    // Inversão se 4 ou mais seguidos forem da mesma cor
     if (ult7.slice(0, 4).every(n => n === 2)) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho", previsao: 1 };
     if (ult7.slice(0, 4).every(n => n === 1)) return { cor: "black", texto: "🔁 Inversão: Apostar Preto", previsao: 2 };
 
-    // Tendência
+    // Tendência se 5 ou mais de 7 forem da mesma cor
     const pretos = count(ult7, 2);
     const vermelhos = count(ult7, 1);
     if (pretos >= 5) return { cor: "red", texto: "📊 Tendência Preto → Vermelho", previsao: 1 };
     if (vermelhos >= 5) return { cor: "black", texto: "📊 Tendência Vermelho → Preto", previsao: 2 };
 
-    // Alerta de Branco
+    // Branco se não saiu em 40 rodadas e a última previsão não foi branco
     if (!ult40.includes(0) && ultimaPrevisao !== 0)
       return { cor: "white", texto: "⚪️ Alerta de Branco", previsao: 0 };
 
