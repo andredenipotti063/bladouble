@@ -1,227 +1,175 @@
 // ==UserScript==
-// @name         Blaze Roleta IA com TensorFlow.js + Proteção no Branco
+// @name         Blaze Roleta IA com Proteção ⚪
 // @namespace    http://tampermonkey.net/
-// @version      2.6
-// @description  IA + lógica + proteção ⚪ + histórico completo e expandível + botões + contadores
+// @version      1.1
+// @description  IA + Lógica + Proteção no Branco ⚪ | Histórico completo | Confiança >90% | Compatível mobile/desktop
 // @author       ChatGPT
 // @match        https://blaze.com/pt/games/double
 // @grant        none
+// @run-at       document-end
 // ==/UserScript==
 
-(async function () {
+(async function(){
   if (window.hasRunBlazeIA) return;
   window.hasRunBlazeIA = true;
 
   // Carrega TensorFlow.js
-  const tfScript = document.createElement('script');
-  tfScript.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js';
-  document.head.appendChild(tfScript);
-  await new Promise(res => tfScript.onload = res);
+  await new Promise((res, rej) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.15.0/dist/tf.min.js';
+    s.onload = res;
+    s.onerror = rej;
+    document.head.appendChild(s);
+  });
 
-  const HIST_LIMIT_PADRAO = 12;
-  let historico = JSON.parse(localStorage.getItem("historicoBlazeIA") || "[]");
-  let acertos = 0, erros = 0, ultimaPrevisao = null, expandir = false;
+  // CSS do painel
+  const st = document.createElement("style");
+  st.innerHTML = `
+    #painelIA{position:fixed;top:20px;left:20px;background:#111;color:#fff;padding:12px;border-radius:8px;z-index:99999;font-family:Arial,sans-serif;width:280px;box-shadow:0 0 8px #000;}
+    #painelIA h1{margin:0 0 8px;font-size:16px;text-align:center;}
+    #sugestaoIA{padding:8px;border-radius:6px;text-align:center;font-weight:bold;background:#222;margin-bottom:6px;}
+    #historicoIA{display:flex;flex-wrap:wrap;max-height:80px;overflow-y:auto;margin-bottom:6px;}
+    .bola{width:16px;height:16px;border-radius:50%;margin:2px;}
+    .branco{background:white;border:1px solid #999;}
+    .vermelho{background:red;}
+    .preto{background:black;}
+    #contadorIA,#taxaIA{font-size:14px;text-align:center;margin:4px 0;}
+    button{background:#333;color:#fff;border:none;padding:5px 8px;border-radius:5px;cursor:pointer;margin:2px;}
+  `;
+  document.head.appendChild(st);
 
+  // HTML do painel
+  const pnl = document.createElement("div");
+  pnl.id = "painelIA";
+  pnl.innerHTML = `
+    <h1>🎯 Blaze IA + Lógica</h1>
+    <div id="sugestaoIA">⏳ Esperando 5 resultados para iniciar a IA...</div>
+    <div id="historicoIA"></div>
+    <div id="contadorIA">Coletados: 0</div>
+    <div id="taxaIA">✅ 0 | ❌ 0 | 🎯 0%</div>
+    <div style="text-align:center;">
+      <button id="resetIA">🔁 Resetar</button>
+      <button id="toggleIA">Recolher</button>
+    </div>
+  `;
+  document.body.appendChild(pnl);
+
+  // Drag (desktop e mobile)
+  let isDrag=false, sx,sy,ix,iy;
+  pnl.addEventListener("mousedown", e=>{isDrag=true; sx=e.clientX; sy=e.clientY; ix=pnl.offsetLeft; iy=pnl.offsetTop;});
+  window.addEventListener("mousemove", e=>{ if(isDrag){ pnl.style.left = ix+(e.clientX-sx)+"px"; pnl.style.top = iy+(e.clientY-sy)+"px"; }});
+  window.addEventListener("mouseup", ()=>isDrag=false);
+  pnl.addEventListener("touchstart", e=>{ if(e.touches.length===1){isDrag=true; sx=e.touches[0].clientX; sy=e.touches[0].clientY; ix=pnl.offsetLeft; iy=pnl.offsetTop;}});
+  window.addEventListener("touchmove", e=>{ if(isDrag && e.touches.length===1){ pnl.style.left = ix+(e.touches[0].clientX-sx)+"px"; pnl.style.top = iy+(e.touches[0].clientY-sy)+"px"; }}, {passive:false});
+  window.addEventListener("touchend", ()=>isDrag=false);
+
+  let historico = JSON.parse(localStorage.getItem("historicoIA")||"[]");
+  let expandido = true, acertos=0, erros=0, ultimaPrev = null;
+
+  document.getElementById("resetIA").onclick = ()=> {
+    historico=[]; acertos=0; erros=0; ultimaPrev=null;
+    localStorage.setItem("historicoIA","[]");
+    updatePanel();
+  };
+  document.getElementById("toggleIA").onclick = ()=> {
+    expandido=!expandido;
+    document.getElementById("toggleIA").innerText = expandido ? "Recolher" : "Expandir";
+    updatePanel();
+  };
+
+  function renderHist(){
+    const cb = document.getElementById("historicoIA");
+    cb.innerHTML="";
+    const arr = expandido ? historico : historico.slice(0,12);
+    arr.forEach(c=>{
+      const d = document.createElement("div");
+      d.className = "bola " + (c===0?"branco":c===1?"vermelho":"preto");
+      cb.appendChild(d);
+    });
+    document.getElementById("contadorIA").textContent = `Coletados: ${historico.length}`;
+    document.getElementById("taxaIA").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${((acertos+erros)>0?((acertos/(acertos+erros))*100).toFixed(1):0)}%`;
+  }
+
+  // IA
   const model = tf.sequential();
-  model.add(tf.layers.dense({ inputShape: [7], units: 20, activation: 'relu' }));
-  model.add(tf.layers.dense({ units: 10, activation: 'relu' }));
-  model.add(tf.layers.dense({ units: 3, activation: 'softmax' }));
-  model.compile({ loss: 'categoricalCrossentropy', optimizer: 'adam' });
+  model.add(tf.layers.dense({inputShape:[5],units:10,activation:'relu'}));
+  model.add(tf.layers.dense({units:3,activation:'softmax'}));
+  model.compile({optimizer:'adam',loss:'categoricalCrossentropy'});
 
-  // Estilos do painel
-  const style = document.createElement("style");
-  style.innerHTML = `
-    #doubleBlackPainel {
-      position: fixed; top: 30px; left: 30px;
-      background: #111; color: #fff;
-      padding: 10px; border-radius: 10px;
-      z-index: 999999; font-family: Arial, sans-serif;
-      width: 300px; box-shadow: 0 0 10px rgba(0,0,0,0.5);
-      cursor: move;
+  function trainModel(){
+    if (historico.length<6) return;
+    const xi=[], yi=[];
+    for(let i=0;i<historico.length-5;i++){
+      xi.push(historico.slice(i,i+5));
+      const o=[0,0,0]; o[historico[i+5]] =1;
+      yi.push(o);
     }
-    #doubleBlackPainel h1 { margin:0 0 8px;font-size:16px;text-align:center;}
-    #sugestaoBox {
-      padding: 8px; text-align:center; font-weight:bold;
-      border-radius:6px; background:#222; margin-bottom:8px;
-    }
-    #historicoBox {
-      display:flex; gap:4px; flex-wrap:wrap; justify-content:center;
-      margin-bottom:8px; max-height:80px;
-      overflow-y:auto;
-    }
-    .bolaHist { width:18px;height:18px;border-radius:50%; }
-    .pretoHist { background:black; }
-    .vermelhoHist { background:red; }
-    .brancoHist { background:white; border:1px solid #999; }
-    #contadorBox, #acertosBox, #ultimaAcaoBox {
-      text-align:center; font-size:13px; margin:4px 0;
-    }
-    #btnExpandir, #btnReset {
-      width:90%; margin:4px auto;
-      padding:6px; border:none; border-radius:6px;
-      background:#444;color:#fff;cursor:pointer;
-      display:block;
-    }
-  `;
-  document.head.appendChild(style);
-
-  // Painel HTML
-  const painel = document.createElement("div");
-  painel.id = "doubleBlackPainel";
-  painel.innerHTML = `
-    <h1>🔮 Blaze IA + Lógica</h1>
-    <div id="sugestaoBox">⏳ Carregando...</div>
-    <div id="historicoBox"></div>
-    <div id="contadorBox">Coletados: ${historico.length}</div>
-    <div id="acertosBox">✅ ${acertos} | ❌ ${erros} | 🎯 0%</div>
-    <div id="ultimaAcaoBox"></div>
-    <button id="btnExpandir">🔼 Expandir Histórico</button>
-    <button id="btnReset">🔁 Resetar Histórico</button>
-  `;
-  document.body.appendChild(painel);
-
-  // Função mover painel
-  let dragging = false, sX, sY, iL, iT;
-  const toMouse = e => ({ x:e.clientX, y:e.clientY });
-  painel.addEventListener("mousedown", e => {
-    dragging = true;
-    const p = toMouse(e);
-    sX = p.x; sY = p.y;
-    iL = painel.offsetLeft; iT = painel.offsetTop;
-  });
-  document.addEventListener("mousemove", e => {
-    if (!dragging) return;
-    const p = toMouse(e);
-    painel.style.left = (iL + (p.x - sX)) + "px";
-    painel.style.top = (iT + (p.y - sY)) + "px";
-  });
-  document.addEventListener("mouseup", () => dragging = false);
-  painel.addEventListener("touchstart", e => {
-    if (e.touches.length !== 1) return;
-    dragging = true;
-    const t = e.touches[0]; sX = t.clientX; sY = t.clientY;
-    iL = painel.offsetLeft; iT = painel.offsetTop;
-  }, {passive:false});
-  document.addEventListener("touchmove", e => {
-    if (!dragging || e.touches.length!==1) return;
-    const t = e.touches[0];
-    painel.style.left = (iL + (t.clientX - sX)) + "px";
-    painel.style.top = (iT + (t.clientY - sY)) + "px";
-  }, {passive:false});
-  document.addEventListener("touchend", () => dragging = false);
-
-  function mostrar(msg){
-    const box = document.getElementById("ultimaAcaoBox");
-    box.textContent = msg;
-    setTimeout(()=>box.textContent="",5000);
-  }
-
-  document.getElementById("btnReset").onclick = () => {
-    historico = []; acertos=0; erros=0; ultimaPrevisao=null;
-    localStorage.removeItem("historicoBlazeIA");
-    atualizar();
-    mostrar("✅ Histórico resetado");
-  };
-
-  document.getElementById("btnExpandir").onclick = () => {
-    expandir = !expandir;
-    document.getElementById("btnExpandir").textContent = expandir ? "🔽 Recolher Histórico" : "🔼 Expandir Histórico";
-    atualizar();
-  };
-
-  // Previsão tradicional
-  function prevTrad(h){
-    if (h.length < 7) return null;
-    const last7 = h.slice(0,7).map(x=>x.cor);
-    const cnt = (v)=> last7.filter(z=>z===v).length;
-    const p = cnt(2), r = cnt(1);
-    if (p>=5) return 1;
-    if (r>=5) return 2;
-    return p>r?1:2;
-  }
-
-  // Treinar IA
-  async function treinarIA(){
-    if (historico.length < 8) return;
-    const X=[], Y=[];
-    for(let i=7;i<historico.length;i++){
-      const inp = historico.slice(i-7,i).map(x=>x.cor/2);
-      const out= [0,0,0]; out[historico[i].cor]=1;
-      X.push(inp); Y.push(out);
-    }
-    const xs=tf.tensor2d(X), ys=tf.tensor2d(Y);
-    await model.fit(xs, ys, {epochs:2});
+    const xs = tf.tensor2d(xi), ys = tf.tensor2d(yi);
+    model.fit(xs,ys,{epochs:5,verbose:0});
     xs.dispose(); ys.dispose();
   }
-
-  // Previsão IA com confiança ≥0.9
-  async function prevIA(){
-    if (historico.length < 8) return null;
-    const inp=tf.tensor2d([historico.slice(0,7).map(x=>x.cor/2)]);
-    const pred=model.predict(inp);
-    const arr=await pred.data();
-    inp.dispose(); pred.dispose();
-    const cf=Math.max(...arr), idx=arr.indexOf(cf);
-    return cf >= 0.9 ? idx : null;
+  function predIA(){
+    if (historico.length <5) return null;
+    const inp = tf.tensor2d([historico.slice(0,5)]);
+    const out = model.predict(inp);
+    const arr = out.dataSync();
+    inp.dispose(); out.dispose();
+    const max = Math.max(...arr);
+    const cor = arr.indexOf(max);
+    return { cor, conf: max*100 };
+  }
+  function predTrad(){
+    const arr = historico.slice(0,5);
+    const r = arr.filter(c=>c===1).length;
+    const p = arr.filter(c=>c===2).length;
+    if (r>p) return 1;
+    if (p>r) return 2;
+    return [1,2][Math.floor(Math.random()*2)];
   }
 
-  // Captura nova rodada
   async function fetchLast(){
     try{
-      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
-      const d = await res.json();
-      const {id, color:cor} = d[0]||{};
-      if (!id||cor===undefined || historico[0]?.id===id) return;
+      const r = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
+      const j = await r.json(); const rod = j[0];
+      if (!rod || rod.id===window._lastId) return;
+      window._lastId = rod.id;
+      historico.unshift(rod.color);
+      localStorage.setItem("historicoIA",JSON.stringify(historico));
 
-      historico.unshift({id, cor});
-      localStorage.setItem("historicoBlazeIA", JSON.stringify(historico));
-
-      if (ultimaPrevisao!==null){
-        if (cor===ultimaPrevisao || (ultimaPrevisao!==0 && cor===0)) acertos++;
+      if(ultimaPrev !== null){
+        if(rod.color===ultimaPrev || rod.color===0) acertos++;
         else erros++;
       }
 
-      await treinarIA();
-      atualizar();
-    }catch(e){
-      console.error(e);
-    }
+      trainModel();
+      decide();
+
+    }catch(e){console.error(e);}
   }
 
-  // Atualiza o painel
-  async function atualizar(){
-    const ult = historico.slice(0, expandir?historico.length:HIST_LIMIT_PADRAO).map(x=>x.cor);
-    const pt = prevTrad(historico);
-    const pi = await prevIA();
-
-    let texto="⏳ Carregando...", bg="#333";
-    if (historico.length<8){
-      texto=`⏳ Esperando ${8-historico.length} resultados...`;
-    } else if (pi!==null && pi===pt){
-      ultimaPrevisao = pi;
-      texto = ["⚪ Branco + ⚪","🔴 Vermelho + ⚪","⚫ Preto + ⚪"][pi];
-      bg = ["white","red","black"][pi];
-    } else {
-      ultimaPrevisao = null;
+  function decide(){
+    renderHist();
+    const sug = document.getElementById("sugestaoIA");
+    if (historico.length <5) {
+      sug.textContent = `⏳ Esperando ${5-historico.length} resultados...`;
+      ultimaPrev = null;
+      return;
     }
-
-    const sbox = document.getElementById("sugestaoBox");
-    sbox.textContent = texto;
-    sbox.style.background = bg;
-    sbox.style.color = bg === "white"? "#000":"#fff";
-
-    const box = document.getElementById("historicoBox");
-    box.innerHTML = '';
-    ult.forEach(c=>{
-      const div = document.createElement("div");
-      div.className = "bolaHist " + (c===0?"brancoHist":c===2?"pretoHist":"vermelhoHist");
-      box.appendChild(div);
-    });
-
-    const total = acertos + erros;
-    const taxa = total?((acertos/total)*100).toFixed(1):0;
-    document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
-    document.getElementById("contadorBox").textContent = `Coletados: ${historico.length}`;
+    const ia = predIA(), tr = predTrad();
+    if (ia && ia.conf>90 && ia.cor===tr){
+      ultimaPrev = ia.cor;
+      const txt = ia.cor===0?"⚪ Branco": ia.cor===1?"🔴 Vermelho + ⚪":"⚫ Preto + ⚪";
+      const bg = ia.cor===0? "#fff": ia.cor===1?"red":"black";
+      const corTxt = ia.cor===0? "#000":"#fff";
+      sug.textContent = txt;
+      sug.style.background = bg;
+      sug.style.color = corTxt;
+    } else {
+      sug.textContent = "⏳ Aguardando previsão com confiança >90%...";
+      sug.style.background = "#222";
+      sug.style.color = "#fff";
+      ultimaPrev = null;
+    }
   }
 
   fetchLast();
