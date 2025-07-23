@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Blaze Roleta IA com Proteção no Branco
+// @name         Blaze Roleta IA com Histórico e Proteção
 // @namespace    http://tampermonkey.net/
-// @version      2.1
-// @description  IA + Lógica + Proteção no branco na Roleta Blaze
+// @version      3.0
+// @description  IA + lógica com histórico completo, proteção no branco e alta precisão (mobile + desktop)
 // @author       ChatGPT
 // @match        https://blaze.com/pt/games/double
 // @grant        none
@@ -23,24 +23,33 @@
   style.innerHTML = `
     #blazePainelIA {
       position: absolute; top: 30px; left: 30px;
-      background: #111; color: #fff;
-      padding: 15px; border-radius: 10px;
-      z-index: 9999; font-family: Arial, sans-serif;
+      background: #111; color: #fff; padding: 15px;
+      border-radius: 10px; z-index: 9999;
+      font-family: Arial, sans-serif;
       width: 300px; box-shadow: 0 0 10px rgba(0,0,0,0.4); cursor: move;
     }
     #blazePainelIA h1 { margin: 0 0 10px; font-size: 16px; text-align: center; }
-    #sugestaoBox { padding: 10px; text-align: center; font-weight: bold;
-      border-radius: 8px; background-color: #222; margin-bottom: 10px; }
-    #historicoBox { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; margin-bottom: 10px; }
+    #sugestaoBox {
+      padding: 10px; text-align: center; font-weight: bold;
+      border-radius: 8px; background-color: #222; margin-bottom: 10px;
+    }
+    #historicoBox {
+      display: flex; gap: 4px; justify-content: center; flex-wrap: wrap;
+      margin-bottom: 10px; max-height: 80px; overflow-y: auto;
+    }
     .bolaHist { width: 20px; height: 20px; border-radius: 50%; }
     .pretoHist { background: black; }
     .vermelhoHist { background: red; }
     .brancoHist { background: white; border: 1px solid #999; }
-    #acertosBox { text-align: center; font-size: 14px; margin-top: 5px; }
-    #ultimaAcaoBox { text-align: center; font-size: 12px; margin-top: 5px; color: #ccc; }
-    #btnReset {
+    #acertosBox, #contadorBox {
+      text-align: center; font-size: 14px; margin-top: 5px;
+    }
+    #ultimaAcaoBox {
+      text-align: center; font-size: 12px; margin-top: 5px; color: #ccc;
+    }
+    #btnReset, #btnExpandir {
       background: #444; color: white; padding: 5px 10px;
-      border-radius: 6px; margin: 10px auto 0;
+      border-radius: 6px; margin: 5px auto 0;
       display: block; cursor: pointer; text-align: center; border: none;
     }
   `;
@@ -49,19 +58,19 @@
   const painel = document.createElement("div");
   painel.id = "blazePainelIA";
   painel.innerHTML = `
-    <h1>🔮 Blaze IA + Proteção ⚪</h1>
+    <h1>🔮 Blaze IA + Lógica</h1>
     <div id="sugestaoBox">⏳ Carregando...</div>
+    <div id="contadorBox">🎲 0 jogadas coletadas</div>
     <div id="historicoBox"></div>
     <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
     <div id="ultimaAcaoBox"></div>
     <button id="btnReset">🔁 Resetar Histórico</button>
+    <button id="btnExpandir">🔽 Expandir Histórico</button>
   `;
   document.body.appendChild(painel);
 
-  let isDragging = false;
-  let startX, startY, initialLeft, initialTop;
+  let isDragging = false, startX, startY, initialLeft, initialTop;
   painel.addEventListener("mousedown", e => {
-    e.preventDefault();
     isDragging = true;
     startX = e.clientX;
     startY = e.clientY;
@@ -97,6 +106,7 @@
   let historico = JSON.parse(localStorage.getItem("historicoBlazeIA") || "[]");
   let ultimaPrevisao = null;
   let acertos = 0, erros = 0;
+  let expandido = false;
 
   const model = tf.sequential();
   model.add(tf.layers.dense({ inputShape: [7], units: 20, activation: 'relu' }));
@@ -116,6 +126,13 @@
     localStorage.removeItem("historicoBlazeIA");
     mostrarAcao("Histórico resetado.");
     atualizarPainel();
+  };
+
+  document.getElementById("btnExpandir").onclick = () => {
+    expandido = !expandido;
+    const btn = document.getElementById("btnExpandir");
+    btn.textContent = expandido ? "🔼 Recolher Histórico" : "🔽 Expandir Histórico";
+    document.getElementById("historicoBox").style.maxHeight = expandido ? "none" : "80px";
   };
 
   function preverTradicional(h) {
@@ -174,28 +191,38 @@
     if (historico.length < 7) return null;
     const input = tf.tensor2d([historico.slice(0, 7).map(x => x.cor / 2)]);
     const pred = model.predict(input);
-    const dados = await pred.data();
-    const index = dados.indexOf(Math.max(...dados));
-    const confianca = dados[index];
+    const conf = (await pred.data());
+    const index = conf.indexOf(Math.max(...conf));
     input.dispose(); pred.dispose();
-    return confianca > 0.9 ? index : null;
+    return { index, confianca: conf[index] };
   }
 
   async function atualizarPainel() {
-    const ult = historico.slice(0, 12).map(x => x.cor);
+    const ult = historico.slice(0, 100).map(x => x.cor);
     const prevTrad = preverTradicional(historico);
-    const prevIA = await preverIA();
+    const prevIAObj = await preverIA();
+    const total = acertos + erros;
+    const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
 
-    let corTexto = "#333", texto = "⌛ Coletando dados...";
-    if (prevIA !== null && prevIA === prevTrad) {
-      ultimaPrevisao = prevIA;
-      texto = ["⚪ Branco", "🔴 Vermelho ⚪", "⚫ Preto ⚪"][prevIA]; // Proteção ⚪
-      corTexto = ["white", "red", "black"][prevIA];
+    document.getElementById("contadorBox").textContent = `🎲 ${historico.length} jogadas coletadas`;
+
+    const sugestao = document.getElementById("sugestaoBox");
+
+    if (historico.length < 20) {
+      sugestao.textContent = "⏳ Esperando 20 resultados para iniciar a IA…";
+      sugestao.style.background = "#222";
+      return;
+    }
+
+    let corTexto = "#333", texto = "⌛ Coletando...";
+    if (prevIAObj && prevIAObj.index === prevTrad && prevIAObj.confianca >= 0.9) {
+      ultimaPrevisao = prevIAObj.index;
+      texto = ["⚪ Branco", "🔴 Vermelho ⚪", "⚫ Preto ⚪"][prevIAObj.index];
+      corTexto = ["white", "red", "black"][prevIAObj.index];
     } else {
       ultimaPrevisao = null;
     }
 
-    const sugestao = document.getElementById("sugestaoBox");
     sugestao.textContent = texto;
     sugestao.style.background = corTexto;
     sugestao.style.color = corTexto === "white" ? "#000" : "#fff";
@@ -208,8 +235,6 @@
       box.appendChild(el);
     });
 
-    const total = acertos + erros;
-    const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
     document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
   }
 
