@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Blaze Roleta IA com TensorFlow.js + Proteção no Branco
+// @name         Blaze Roleta IA + Proteção ⚪ + Histórico Completo
 // @namespace    http://tampermonkey.net/
-// @version      2.5
-// @description  Previsão com IA + Lógica tradicional + Proteção ⚪ + Aprendizado online + Histórico expandível
+// @version      3.0
+// @description  IA real com TensorFlow.js + lógica tradicional combinadas com previsão ⚪ Protegida, histórico persistente e confiável — compatível com PC e celular
 // @author       ChatGPT
 // @match        https://blaze.com/pt/games/double
 // @grant        none
@@ -12,6 +12,7 @@
   if (window.hasRunBlazeIA) return;
   window.hasRunBlazeIA = true;
 
+  // Carregar TensorFlow.js
   const tfScript = document.createElement('script');
   tfScript.src = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js';
   document.head.appendChild(tfScript);
@@ -19,8 +20,14 @@
 
   const sleep = ms => new Promise(r => setTimeout(r, ms));
   const HIST_LIMIT_PADRAO = 12;
-
   let historico = JSON.parse(localStorage.getItem("historicoBlazeIA") || "[]");
+
+  // Reset se histórico corrompido
+  if (!Array.isArray(historico) || historico.some(h => typeof h.cor !== "number")) {
+    historico = [];
+    localStorage.removeItem("historicoBlazeIA");
+  }
+
   let acertos = 0, erros = 0, ultimaPrevisao = null, expandirHistorico = false;
 
   const model = tf.sequential();
@@ -29,116 +36,102 @@
   model.add(tf.layers.dense({ units: 3, activation: 'softmax' }));
   model.compile({ loss: 'categoricalCrossentropy', optimizer: 'adam' });
 
-  // Estilo do painel
+  // Criar painel
+  const painel = document.createElement("div");
+  painel.id = "painelBlazeIA";
+  painel.innerHTML = `
+    <div id="sugestaoBox">⏳ Coletando dados...</div>
+    <div id="historicoBox"></div>
+    <div id="estatisticas">
+      <div><b>Jogadas:</b> <span id="contador">0</span></div>
+      <div><b>Taxa de Acerto:</b> <span id="taxa">0%</span></div>
+    </div>
+    <div id="botoes">
+      <button id="btnExpandir">Expandir Histórico</button>
+      <button id="btnReset">Resetar Histórico</button>
+    </div>
+    <div id="mensagemTemp"></div>
+  `;
+  document.body.appendChild(painel);
+
   const style = document.createElement("style");
-  style.innerHTML = `
-    #blazePainelIA {
-      position: fixed; top: 30px; left: 30px;
-      background: #111; color: #fff;
-      padding: 15px; border-radius: 10px;
-      z-index: 9999; font-family: Arial, sans-serif;
-      width: 320px; box-shadow: 0 0 10px rgba(0,0,0,0.4); cursor: move;
+  style.textContent = `
+    #painelBlazeIA {
+      position: fixed;
+      top: 10px;
+      left: 10px;
+      background: #111;
+      color: white;
+      padding: 10px;
+      z-index: 9999;
+      font-family: Arial;
+      width: 250px;
+      border: 2px solid #555;
     }
-    #blazePainelIA h1 { margin: 0 0 10px; font-size: 16px; text-align: center; }
-    #sugestaoBox { padding: 10px; text-align: center; font-weight: bold;
-      border-radius: 8px; background-color: #222; margin-bottom: 10px; }
-    #historicoBox { display: flex; gap: 4px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; max-height: 100px; overflow-y: auto; }
-    .bolaHist { width: 20px; height: 20px; border-radius: 50%; }
-    .pretoHist { background: black; }
-    .vermelhoHist { background: red; }
-    .brancoHist { background: white; border: 1px solid #999; }
-    #acertosBox, #contadorBox { text-align: center; font-size: 14px; margin-top: 5px; }
-    #ultimaAcaoBox { text-align: center; font-size: 12px; margin-top: 5px; color: #ccc; }
-    #btnReset, #btnExpandir {
-      background: #444; color: white; padding: 5px 10px;
-      border-radius: 6px; margin: 5px auto 0;
-      display: block; cursor: pointer; text-align: center; border: none;
-      width: 90%;
+    #sugestaoBox {
+      padding: 10px;
+      margin-bottom: 10px;
+      font-size: 18px;
+      text-align: center;
+      font-weight: bold;
+      background: #333;
+      color: white;
+    }
+    #historicoBox {
+      display: flex;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .corBox {
+      width: 20px;
+      height: 20px;
+      margin: 1px;
+      border-radius: 50%;
+    }
+    .cor-0 { background: white; border: 1px solid #999; }
+    .cor-1 { background: red; }
+    .cor-2 { background: black; }
+    #estatisticas {
+      font-size: 13px;
+      margin-bottom: 8px;
+    }
+    #botoes button {
+      margin-right: 5px;
+      margin-top: 4px;
+      font-size: 11px;
+    }
+    #mensagemTemp {
+      margin-top: 6px;
+      font-size: 13px;
+      color: yellow;
     }
   `;
   document.head.appendChild(style);
 
-  // Painel
-  const painel = document.createElement("div");
-  painel.id = "blazePainelIA";
-  painel.innerHTML = `
-    <h1>🔮 Blaze IA + Lógica</h1>
-    <div id="sugestaoBox">⏳ Carregando...</div>
-    <div id="historicoBox"></div>
-    <div id="contadorBox">Coletados: 0</div>
-    <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
-    <div id="ultimaAcaoBox"></div>
-    <button id="btnExpandir">🔼 Expandir Histórico</button>
-    <button id="btnReset">🔁 Resetar Histórico</button>
-  `;
-  document.body.appendChild(painel);
-
-  // Movimento do painel
-  let isDragging = false, startX, startY, initialLeft, initialTop;
-  painel.addEventListener("mousedown", e => {
-    e.preventDefault(); isDragging = true;
-    startX = e.clientX; startY = e.clientY;
-    initialLeft = painel.offsetLeft; initialTop = painel.offsetTop;
-  });
-  document.addEventListener("mousemove", e => {
-    if (!isDragging) return;
-    painel.style.left = initialLeft + (e.clientX - startX) + "px";
-    painel.style.top = initialTop + (e.clientY - startY) + "px";
-  });
-  document.addEventListener("mouseup", () => isDragging = false);
-
-  // Touch para celular
-  painel.addEventListener("touchstart", e => {
-    if (e.touches.length === 1) {
-      const t = e.touches[0];
-      isDragging = true;
-      startX = t.clientX;
-      startY = t.clientY;
-      initialLeft = painel.offsetLeft;
-      initialTop = painel.offsetTop;
-    }
-  }, { passive: false });
-  document.addEventListener("touchmove", e => {
-    if (isDragging && e.touches.length === 1) {
-      const t = e.touches[0];
-      painel.style.left = initialLeft + (t.clientX - startX) + "px";
-      painel.style.top = initialTop + (t.clientY - startY) + "px";
-    }
-  }, { passive: false });
-  document.addEventListener("touchend", () => isDragging = false);
-
-  function mostrarAcao(msg) {
-    const box = document.getElementById("ultimaAcaoBox");
-    box.textContent = msg;
-    setTimeout(() => { box.textContent = ""; }, 5000);
-  }
+  document.getElementById("btnExpandir").onclick = () => {
+    expandirHistorico = !expandirHistorico;
+    document.getElementById("btnExpandir").innerText = expandirHistorico ? "Recolher Histórico" : "Expandir Histórico";
+    atualizarPainel();
+  };
 
   document.getElementById("btnReset").onclick = () => {
     historico = [];
-    acertos = 0; erros = 0;
     localStorage.removeItem("historicoBlazeIA");
-    mostrarAcao("Histórico resetado.");
+    acertos = 0;
+    erros = 0;
+    ultimaPrevisao = null;
+    mostrarMensagem("Histórico resetado.");
     atualizarPainel();
   };
 
-  document.getElementById("btnExpandir").onclick = () => {
-    expandirHistorico = !expandirHistorico;
-    document.getElementById("btnExpandir").textContent = expandirHistorico ? "🔽 Recolher Histórico" : "🔼 Expandir Histórico";
-    atualizarPainel();
-  };
-
-  function preverTradicional(h) {
-    if (h.length < 7) return null;
-    const ult7 = h.slice(0, 7).map(x => x.cor);
-    const count = (arr, val) => arr.filter(n => n === val).length;
-    const pretos = count(ult7, 2), vermelhos = count(ult7, 1);
-    if (pretos >= 5) return 1;
-    if (vermelhos >= 5) return 2;
-    return pretos > vermelhos ? 1 : 2;
+  function mostrarMensagem(msg) {
+    const el = document.getElementById("mensagemTemp");
+    el.innerText = msg;
+    setTimeout(() => el.innerText = "", 5000);
   }
 
   async function treinarIA() {
-    if (historico.length < 20) return;
+    if (historico.length < 8) return;
     const entradas = [], saidas = [];
     for (let i = 7; i < historico.length; i++) {
       const input = historico.slice(i - 7, i).map(x => x.cor / 2);
@@ -154,40 +147,26 @@
   }
 
   async function preverIA() {
-    if (historico.length < 7) return null;
-    const input = tf.tensor2d([historico.slice(0, 7).map(x => x.cor / 2)]);
-    const pred = model.predict(input);
-    const data = await pred.data();
-    const conf = Math.max(...data);
-    const index = data.indexOf(conf);
-    input.dispose(); pred.dispose();
-    return conf >= 0.9 ? index : null;
+    if (historico.length < 8) return null;
+    const entrada = historico.slice(-7).map(x => x.cor / 2);
+    const input = tf.tensor2d([entrada]);
+    const output = model.predict(input);
+    const array = await output.data();
+    input.dispose(); output.dispose();
+
+    const max = Math.max(...array);
+    if (max < 0.9) return null;
+    return array.indexOf(max);
   }
 
-  async function fetchUltimo() {
-    try {
-      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
-      const data = await res.json();
-      const { id, color } = data[0];
-      if (!id || color === undefined) return;
-      if (historico[0]?.id === id) return;
-
-      historico.unshift({ cor: color, id });
-      localStorage.setItem("historicoBlazeIA", JSON.stringify(historico));
-
-      if (ultimaPrevisao !== null) {
-        if (color === ultimaPrevisao || (ultimaPrevisao !== 0 && color === 0)) {
-          acertos++;
-        } else {
-          erros++;
-        }
-      }
-
-      await treinarIA();
-      atualizarPainel();
-    } catch (e) {
-      console.error("Erro:", e);
-    }
+  function preverTradicional(hist) {
+    if (hist.length < 3) return null;
+    const ultimas = hist.slice(-3).map(h => h.cor);
+    const vermelhos = ultimas.filter(c => c === 1).length;
+    const pretos = ultimas.filter(c => c === 2).length;
+    if (vermelhos >= 2) return 2;
+    if (pretos >= 2) return 1;
+    return null;
   }
 
   async function atualizarPainel() {
@@ -198,11 +177,11 @@
     const sugestao = document.getElementById("sugestaoBox");
     let texto = "⏳ Coletando dados...", corTexto = "#333";
 
-    if (historico.length < 20) {
-      texto = `⏳ Esperando ${20 - historico.length} resultados...`;
+    if (historico.length < 8) {
+      texto = `⏳ Esperando ${8 - historico.length} resultados...`;
     } else if (prevIA !== null && prevIA === prevTrad) {
       ultimaPrevisao = prevIA;
-      texto = ["⚪ Branco", "🔴 Vermelho + ⚪", "⚫ Preto + ⚪"][prevIA];
+      texto = ["⚪", "🔴 + ⚪", "⚫ + ⚪"][prevIA];
       corTexto = ["white", "red", "black"][prevIA];
     } else {
       ultimaPrevisao = null;
@@ -212,18 +191,43 @@
     sugestao.style.background = corTexto;
     sugestao.style.color = corTexto === "white" ? "#000" : "#fff";
 
-    const box = document.getElementById("historicoBox");
-    box.innerHTML = "";
-    ult.forEach(n => {
-      const el = document.createElement("div");
-      el.className = "bolaHist " + (n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist");
-      box.appendChild(el);
-    });
+    // histórico
+    const hBox = document.getElementById("historicoBox");
+    hBox.innerHTML = ult.map(c => `<div class="corBox cor-${c}"></div>`).join("");
 
+    // taxa
     const total = acertos + erros;
-    const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
-    document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
-    document.getElementById("contadorBox").textContent = `Coletados: ${historico.length}`;
+    document.getElementById("contador").innerText = historico.length;
+    document.getElementById("taxa").innerText = total > 0 ? `${Math.round(acertos * 100 / total)}%` : "0%";
+  }
+
+  async function fetchUltimo() {
+    try {
+      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
+      const json = await res.json();
+      const color = json[0]?.color;
+      const rodada = json[0]?.created_at;
+
+      if (typeof color === "number" && rodada !== historico[0]?.rodada) {
+        historico.unshift({ cor: color, rodada });
+        localStorage.setItem("historicoBlazeIA", JSON.stringify(historico));
+
+        if (ultimaPrevisao !== null) {
+          if (color === ultimaPrevisao || color === 0) {
+            acertos++;
+            mostrarMensagem("✅ Vitória!");
+          } else {
+            erros++;
+            mostrarMensagem("❌ Derrota!");
+          }
+        }
+
+        await treinarIA();
+        atualizarPainel();
+      }
+    } catch (e) {
+      console.error("Erro ao buscar resultado:", e);
+    }
   }
 
   fetchUltimo();
