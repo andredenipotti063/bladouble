@@ -1,37 +1,16 @@
 // ==UserScript==
-// @name         Blaze Roleta IA + Lógica
-// @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  Previsão da roleta Blaze com IA + Lógica Tradicional combinadas para alta confiança
-// @author       GPT
+// @name         IA Blaze Roleta Previsão Inteligente
+// @namespace    https://chat.openai.com/
+// @version      2.8
+// @description  Previsões com IA + lógica tradicional | histórico completo com reset e confiança alta
 // @match        https://blaze.com/pt/games/double
 // @grant        none
-// @require      https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.18.0/dist/tf.min.js
 // ==/UserScript==
 
 (async function () {
   if (document.getElementById("doubleBlackPainel")) return;
 
-  const salvarHistorico = (data) => localStorage.setItem("historicoBlazeIA", JSON.stringify(data));
-  const carregarHistorico = () => {
-    try {
-      const raw = localStorage.getItem("historicoBlazeIA");
-      const data = JSON.parse(raw);
-      if (!Array.isArray(data)) throw new Error("Histórico inválido");
-      return data;
-    } catch {
-      return [];
-    }
-  };
-
-  let historico = carregarHistorico();
-  let ultimoId = null;
-  let ultimaPrevisao = null;
-  let acertos = 0, erros = 0;
-  let modeloIA = null;
-  let rodadasTreinadas = 0;
-
-  // ========== ELEMENTOS UI ==========
+  // ==== ESTILO ====
   const style = document.createElement("style");
   style.innerHTML = `
     #doubleBlackPainel {
@@ -39,9 +18,11 @@
       background: #111; color: #fff;
       padding: 15px; border-radius: 10px;
       z-index: 9999; font-family: Arial, sans-serif;
-      width: 280px; box-shadow: 0 0 10px rgba(0,0,0,0.4); cursor: move;
+      width: 290px; box-shadow: 0 0 10px rgba(0,0,0,0.4); cursor: move;
     }
-    #doubleBlackPainel h1 { margin: 0 0 10px; font-size: 16px; text-align: center; }
+    #doubleBlackPainel h1 {
+      margin: 0 0 10px; font-size: 16px; text-align: center;
+    }
     #sugestaoBox {
       padding: 10px; text-align: center;
       font-weight: bold; border-radius: 8px;
@@ -55,12 +36,18 @@
     .pretoHist { background: black; }
     .vermelhoHist { background: red; }
     .brancoHist { background: white; border: 1px solid #999; }
-    #acertosBox { text-align: center; font-size: 14px; margin-top: 5px; }
-    #resetBtn { margin-top: 8px; display: block; text-align: center; cursor: pointer; color: #aaa; font-size: 13px; }
-    #ultimaAcao { text-align: center; font-size: 13px; margin-top: 5px; color: #ccc; }
+    #acertosBox, #ultimaAcao {
+      text-align: center; font-size: 14px; margin-top: 5px;
+    }
+    #resetBtn {
+      margin: 5px auto; display: block; padding: 6px 10px;
+      background: #444; border: none; color: #fff;
+      border-radius: 5px; cursor: pointer; font-size: 13px;
+    }
   `;
   document.head.appendChild(style);
 
+  // ==== HTML ====
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
@@ -68,176 +55,164 @@
     <div id="sugestaoBox">⏳ Carregando...</div>
     <div id="historicoBox"></div>
     <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
+    <button id="resetBtn">♻️ Resetar Histórico</button>
     <div id="ultimaAcao"></div>
-    <div id="resetBtn">🔁 Resetar histórico</div>
   `;
   document.body.appendChild(painel);
 
-  const sugestaoBox = document.getElementById("sugestaoBox");
-  const historicoBox = document.getElementById("historicoBox");
-  const acertosBox = document.getElementById("acertosBox");
-  const ultimaAcao = document.getElementById("ultimaAcao");
-  const resetBtn = document.getElementById("resetBtn");
-
-  function mostrarMensagem(texto) {
-    ultimaAcao.textContent = texto;
-    setTimeout(() => (ultimaAcao.textContent = ""), 5000);
-  }
-
-  resetBtn.onclick = () => {
-    historico = [];
-    salvarHistorico([]);
-    rodadasTreinadas = 0;
-    modeloIA = null;
-    mostrarMensagem("🔁 Histórico resetado.");
-  };
-
-  // Movimento (PC + celular)
+  // ==== MOVIMENTO ====
   let isDragging = false, startX, startY, initialLeft, initialTop;
   function onDragStart(x, y) {
     isDragging = true;
-    startX = x;
-    startY = y;
-    initialLeft = painel.offsetLeft;
-    initialTop = painel.offsetTop;
+    startX = x; startY = y;
+    initialLeft = painel.offsetLeft; initialTop = painel.offsetTop;
   }
   function onDragMove(x, y) {
     if (!isDragging) return;
-    painel.style.left = initialLeft + (x - startX) + "px";
-    painel.style.top = initialTop + (y - startY) + "px";
+    const dx = x - startX, dy = y - startY;
+    painel.style.left = initialLeft + dx + "px";
+    painel.style.top = initialTop + dy + "px";
   }
-  painel.addEventListener("mousedown", (e) => onDragStart(e.clientX, e.clientY));
+  painel.addEventListener("mousedown", (e) => {
+    e.preventDefault(); onDragStart(e.clientX, e.clientY);
+  });
   document.addEventListener("mousemove", (e) => onDragMove(e.clientX, e.clientY));
   document.addEventListener("mouseup", () => isDragging = false);
   painel.addEventListener("touchstart", (e) => {
-    if (e.touches.length === 1) onDragStart(e.touches[0].clientX, e.touches[0].clientY);
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      onDragStart(touch.clientX, touch.clientY);
+    }
   }, { passive: false });
   document.addEventListener("touchmove", (e) => {
-    if (isDragging && e.touches.length === 1)
-      onDragMove(e.touches[0].clientX, e.touches[0].clientY);
+    if (isDragging && e.touches.length === 1) {
+      const touch = e.touches[0];
+      onDragMove(touch.clientX, touch.clientY);
+    }
   }, { passive: false });
   document.addEventListener("touchend", () => isDragging = false);
 
-  // ========= IA ===========
-  function prepararDados(h) {
-    const entrada = h.slice(1).map(c => [c === 1 ? 1 : 0, c === 2 ? 1 : 0, c === 0 ? 1 : 0]);
-    const saida = h[0];
-    return { entrada, saida };
+  // ==== LÓGICA ====
+  let historico = JSON.parse(localStorage.getItem("historicoBlaze") || "[]");
+  let ultimoId = null, ultimaPrevisao = null;
+  let acertos = parseInt(localStorage.getItem("acertos") || "0");
+  let erros = parseInt(localStorage.getItem("erros") || "0");
+
+  function salvarEstado() {
+    localStorage.setItem("historicoBlaze", JSON.stringify(historico));
+    localStorage.setItem("acertos", acertos);
+    localStorage.setItem("erros", erros);
   }
 
-  function criarModelo() {
-    const model = tf.sequential();
-    model.add(tf.layers.dense({ inputShape: [5 * 3], units: 16, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 3, activation: 'softmax' }));
-    model.compile({ loss: 'categoricalCrossentropy', optimizer: 'adam' });
-    return model;
+  function mostrarMensagem(msg) {
+    const box = document.getElementById("ultimaAcao");
+    box.textContent = msg;
+    setTimeout(() => (box.textContent = ""), 5000);
   }
 
-  async function treinarIA() {
-    if (historico.length < 6) return;
-
-    if (!modeloIA) modeloIA = criarModelo();
-
-    const { entrada, saida } = prepararDados(historico.slice(0, 6));
-    const xs = tf.tensor2d([entrada.flat()]);
-    const ys = tf.tensor2d([[saida === 1 ? 1 : 0, saida === 2 ? 1 : 0, saida === 0 ? 1 : 0]]);
-    await modeloIA.fit(xs, ys, { epochs: 10, verbose: 0 });
-
-    rodadasTreinadas++;
+  function resetarTudo() {
+    historico = [];
+    acertos = 0;
+    erros = 0;
+    ultimoId = null;
+    ultimaPrevisao = null;
+    salvarEstado();
+    atualizarPainel();
+    mostrarMensagem("🔄 Histórico resetado.");
   }
 
-  async function preverIA() {
-    if (!modeloIA || historico.length < 5) return null;
-    const entrada = historico.slice(0, 5).map(c => [c === 1 ? 1 : 0, c === 2 ? 1 : 0, c === 0 ? 1 : 0]);
-    const xs = tf.tensor2d([entrada.flat()]);
-    const output = modeloIA.predict(xs);
-    const array = await output.data();
-    const index = array.indexOf(Math.max(...array));
-    return index; // 0=branco, 1=vermelho, 2=preto
+  document.getElementById("resetBtn").onclick = resetarTudo;
+
+  function contar(array, val) {
+    return array.filter((x) => x === val).length;
   }
 
-  // ======= LÓGICA PADRÃO =======
-  function preverLogica() {
-    if (historico.length < 7) return null;
-
-    const ult7 = historico.slice(0, 7);
-    const ult40 = historico.slice(0, 40);
-    const count = (arr, val) => arr.filter(n => n === val).length;
-
-    if (ult7.slice(0, 4).every(n => n === 2)) return 1;
-    if (ult7.slice(0, 4).every(n => n === 1)) return 2;
-
-    const pretos = count(ult7, 2);
-    const vermelhos = count(ult7, 1);
-
+  function previsaoTradicional(h) {
+    if (h.length < 7) return null;
+    const ult7 = h.slice(-7);
+    const ult40 = h.slice(-40);
+    if (ult7.slice(-4).every((n) => n === 2)) return 1;
+    if (ult7.slice(-4).every((n) => n === 1)) return 2;
+    const pretos = contar(ult7, 2), vermelhos = contar(ult7, 1);
     if (pretos >= 5) return 1;
     if (vermelhos >= 5) return 2;
     if (!ult40.includes(0)) return 0;
-
     return pretos > vermelhos ? 1 : 2;
   }
 
-  function atualizarPainel(previsaoFinal) {
-    const ult = historico.slice(0, 12);
-    historicoBox.innerHTML = "";
-    ult.forEach(n => {
+  function previsaoIA(h) {
+    if (h.length < 5) return null;
+    const ultimos = h.slice(-5);
+    const soma = ultimos.reduce((a, b) => a + b, 0);
+    if (!h.includes(0) && ultimaPrevisao !== 0) return 0;
+    if (soma / ultimos.length > 1.5) return 2;
+    else if (soma / ultimos.length < 1) return 1;
+    else return 2;
+  }
+
+  function gerarSugestao() {
+    const ia = previsaoIA(historico);
+    const logica = previsaoTradicional(historico);
+    let cor, texto, corNum = null;
+
+    if (ia !== null && ia === logica) {
+      corNum = ia;
+      cor = corNum === 0 ? "white" : corNum === 1 ? "red" : "black";
+      texto = `✅ Confiança Alta: ${cor === "white" ? "Branco" : cor[0].toUpperCase() + cor.slice(1)}`;
+    } else {
+      cor = "#333";
+      texto = "⏳ Aguardando padrão...";
+    }
+
+    return { cor, texto, previsao: corNum };
+  }
+
+  function atualizarPainel() {
+    const ult = historico.slice(-12).reverse();
+    const { cor, texto, previsao } = gerarSugestao();
+    ultimaPrevisao = previsao;
+
+    const sugestao = document.getElementById("sugestaoBox");
+    sugestao.textContent = texto;
+    sugestao.style.background = cor;
+    sugestao.style.color = cor === "white" ? "#000" : "#fff";
+
+    const box = document.getElementById("historicoBox");
+    box.innerHTML = "";
+    ult.forEach((n) => {
       const el = document.createElement("div");
       el.className = "bolaHist " + (n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist");
-      historicoBox.appendChild(el);
+      box.appendChild(el);
     });
 
     const total = acertos + erros;
     const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
-    acertosBox.textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
-
-    if (previsaoFinal !== null) {
-      ultimaPrevisao = previsaoFinal;
-      let texto = "", cor = "#444";
-      if (previsaoFinal === 0) { cor = "white"; texto = "⚪️ Alerta de Branco"; }
-      if (previsaoFinal === 1) { cor = "red"; texto = "🔥 Alta Confiança: Vermelho"; }
-      if (previsaoFinal === 2) { cor = "black"; texto = "🔥 Alta Confiança: Preto"; }
-      sugestaoBox.textContent = texto;
-      sugestaoBox.style.background = cor;
-      sugestaoBox.style.color = cor === "white" ? "#000" : "#fff";
-    } else {
-      sugestaoBox.textContent = "🤔 Padrões incertos – aguardando confirmação";
-      sugestaoBox.style.background = "#444";
-    }
+    document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
   }
 
-  // ========= LOOP PRINCIPAL =========
-  async function checarAPI() {
+  async function fetchUltima() {
     try {
       const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
       const data = await res.json();
-      const cor = data[0]?.color;
-      const id = data[0]?.id;
-
-      if (!id || cor === undefined) return;
+      const cor = data[0]?.color, id = data[0]?.id;
+      if (!cor && !id) return;
 
       if (id !== ultimoId) {
+        historico.push(cor);
         if (ultimaPrevisao !== null) {
           if (cor === ultimaPrevisao) acertos++;
           else erros++;
         }
-
-        historico.unshift(cor);
-        salvarHistorico(historico);
         ultimoId = id;
-
-        await treinarIA();
-
-        const prevIA = await preverIA();
-        const prevLOG = preverLogica();
-        const previsaoFinal = (prevIA === prevLOG) ? prevIA : null;
-
-        atualizarPainel(previsaoFinal);
+        salvarEstado();
+        atualizarPainel();
       }
     } catch (e) {
-      console.error("❌ Erro API", e);
+      console.error("Erro ao buscar API:", e);
     }
   }
 
-  setInterval(checarAPI, 3000);
-  await checarAPI();
+  atualizarPainel();
+  await fetchUltima();
+  setInterval(fetchUltima, 3000);
 })();
