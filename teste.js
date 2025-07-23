@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Blaze Roleta IA com TensorFlow.js + Proteção no Branco
 // @namespace    http://tampermonkey.net/
-// @version      2.6
+// @version      2.5
 // @description  Previsão com IA + Lógica tradicional + Proteção ⚪ + Aprendizado online + Histórico expandível
 // @author       ChatGPT
 // @match        https://blaze.com/pt/games/double
@@ -17,7 +17,9 @@
   document.head.appendChild(tfScript);
   await new Promise(res => tfScript.onload = res);
 
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
   const HIST_LIMIT_PADRAO = 12;
+
   let historico = JSON.parse(localStorage.getItem("historicoBlazeIA") || "[]");
   let acertos = 0, erros = 0, ultimaPrevisao = null, expandirHistorico = false;
 
@@ -56,7 +58,7 @@
   `;
   document.head.appendChild(style);
 
-  // Painel HTML
+  // Painel
   const painel = document.createElement("div");
   painel.id = "blazePainelIA";
   painel.innerHTML = `
@@ -71,32 +73,38 @@
   `;
   document.body.appendChild(painel);
 
-  // Mover painel
+  // Movimento do painel
   let isDragging = false, startX, startY, initialLeft, initialTop;
-  const mover = (e, touch = false) => {
-    const x = touch ? e.touches[0].clientX : e.clientX;
-    const y = touch ? e.touches[0].clientY : e.clientY;
-    painel.style.left = initialLeft + (x - startX) + "px";
-    painel.style.top = initialTop + (y - startY) + "px";
-  };
   painel.addEventListener("mousedown", e => {
-    isDragging = true;
+    e.preventDefault(); isDragging = true;
     startX = e.clientX; startY = e.clientY;
     initialLeft = painel.offsetLeft; initialTop = painel.offsetTop;
   });
-  document.addEventListener("mousemove", e => isDragging && mover(e));
+  document.addEventListener("mousemove", e => {
+    if (!isDragging) return;
+    painel.style.left = initialLeft + (e.clientX - startX) + "px";
+    painel.style.top = initialTop + (e.clientY - startY) + "px";
+  });
   document.addEventListener("mouseup", () => isDragging = false);
 
+  // Touch para celular
   painel.addEventListener("touchstart", e => {
     if (e.touches.length === 1) {
+      const t = e.touches[0];
       isDragging = true;
-      startX = e.touches[0].clientX;
-      startY = e.touches[0].clientY;
+      startX = t.clientX;
+      startY = t.clientY;
       initialLeft = painel.offsetLeft;
       initialTop = painel.offsetTop;
     }
   }, { passive: false });
-  document.addEventListener("touchmove", e => isDragging && mover(e, true), { passive: false });
+  document.addEventListener("touchmove", e => {
+    if (isDragging && e.touches.length === 1) {
+      const t = e.touches[0];
+      painel.style.left = initialLeft + (t.clientX - startX) + "px";
+      painel.style.top = initialTop + (t.clientY - startY) + "px";
+    }
+  }, { passive: false });
   document.addEventListener("touchend", () => isDragging = false);
 
   function mostrarAcao(msg) {
@@ -106,8 +114,8 @@
   }
 
   document.getElementById("btnReset").onclick = () => {
-    historico = []; acertos = 0; erros = 0;
-    ultimaPrevisao = null;
+    historico = [];
+    acertos = 0; erros = 0;
     localStorage.removeItem("historicoBlazeIA");
     mostrarAcao("Histórico resetado.");
     atualizarPainel();
@@ -130,7 +138,7 @@
   }
 
   async function treinarIA() {
-    if (historico.length < 8) return;
+    if (historico.length < 20) return;
     const entradas = [], saidas = [];
     for (let i = 7; i < historico.length; i++) {
       const input = historico.slice(i - 7, i).map(x => x.cor / 2);
@@ -161,12 +169,14 @@
       const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
       const data = await res.json();
       const { id, color } = data[0];
-      if (!id || color === undefined || historico[0]?.id === id) return;
+      if (!id || color === undefined) return;
+      if (historico[0]?.id === id) return;
+
       historico.unshift({ cor: color, id });
       localStorage.setItem("historicoBlazeIA", JSON.stringify(historico));
 
       if (ultimaPrevisao !== null) {
-        if (color === ultimaPrevisao || (color === 0 && ultimaPrevisao !== 0)) {
+        if (color === ultimaPrevisao || (ultimaPrevisao !== 0 && color === 0)) {
           acertos++;
         } else {
           erros++;
@@ -176,7 +186,7 @@
       await treinarIA();
       atualizarPainel();
     } catch (e) {
-      console.error("Erro ao buscar resultado:", e);
+      console.error("Erro:", e);
     }
   }
 
@@ -188,8 +198,8 @@
     const sugestao = document.getElementById("sugestaoBox");
     let texto = "⏳ Coletando dados...", corTexto = "#333";
 
-    if (historico.length < 8) {
-      texto = `⏳ Esperando ${8 - historico.length} resultados...`;
+    if (historico.length < 20) {
+      texto = `⏳ Esperando ${20 - historico.length} resultados...`;
     } else if (prevIA !== null && prevIA === prevTrad) {
       ultimaPrevisao = prevIA;
       texto = ["⚪ Branco", "🔴 Vermelho + ⚪", "⚫ Preto + ⚪"][prevIA];
@@ -211,7 +221,7 @@
     });
 
     const total = acertos + erros;
-    const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : "0";
+    const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
     document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
     document.getElementById("contadorBox").textContent = `Coletados: ${historico.length}`;
   }
