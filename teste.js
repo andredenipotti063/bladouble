@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         Blaze Roleta IA com TensorFlow.js (confiança > 90% + proteção branco)
+// @name         Blaze Roleta IA com Proteção no Branco
 // @namespace    http://tampermonkey.net/
 // @version      2.1
-// @description  IA + Lógica tradicional combinadas na Roleta Blaze (previsões só com alta confiança e proteção no branco)
+// @description  IA + Lógica + Proteção no branco na Roleta Blaze
 // @author       ChatGPT
 // @match        https://blaze.com/pt/games/double
 // @grant        none
@@ -49,7 +49,7 @@
   const painel = document.createElement("div");
   painel.id = "blazePainelIA";
   painel.innerHTML = `
-    <h1>🔮 Blaze IA + Lógica</h1>
+    <h1>🔮 Blaze IA + Proteção ⚪</h1>
     <div id="sugestaoBox">⏳ Carregando...</div>
     <div id="historicoBox"></div>
     <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
@@ -58,7 +58,6 @@
   `;
   document.body.appendChild(painel);
 
-  // Drag do painel (PC + mobile)
   let isDragging = false;
   let startX, startY, initialLeft, initialTop;
   painel.addEventListener("mousedown", e => {
@@ -142,7 +141,7 @@
       localStorage.setItem("historicoBlazeIA", JSON.stringify(historico));
 
       if (ultimaPrevisao !== null) {
-        if (color === ultimaPrevisao) acertos++;
+        if (color === ultimaPrevisao || color === 0) acertos++;
         else erros++;
       }
 
@@ -155,6 +154,7 @@
 
   async function treinarIA() {
     if (historico.length < 20) return;
+
     const entradas = [], saidas = [];
     for (let i = 7; i < historico.length; i++) {
       const input = historico.slice(i - 7, i).map(x => x.cor / 2);
@@ -163,6 +163,7 @@
       entradas.push(input);
       saidas.push(output);
     }
+
     const xs = tf.tensor2d(entradas);
     const ys = tf.tensor2d(saidas);
     await model.fit(xs, ys, { epochs: 2 });
@@ -173,26 +174,25 @@
     if (historico.length < 7) return null;
     const input = tf.tensor2d([historico.slice(0, 7).map(x => x.cor / 2)]);
     const pred = model.predict(input);
-    const data = await pred.data();
-    const max = Math.max(...data);
-    const index = data.indexOf(max);
+    const dados = await pred.data();
+    const index = dados.indexOf(Math.max(...dados));
+    const confianca = dados[index];
     input.dispose(); pred.dispose();
-    return { cor: index, confianca: max };
+    return confianca > 0.9 ? index : null;
   }
 
   async function atualizarPainel() {
     const ult = historico.slice(0, 12).map(x => x.cor);
     const prevTrad = preverTradicional(historico);
-    const ia = await preverIA();
+    const prevIA = await preverIA();
 
-    let texto = "⌛ Coletando dados...", corTexto = "#333";
-    ultimaPrevisao = null;
-
-    if (ia && ia.confianca > 0.9 && ia.cor === prevTrad) {
-      ultimaPrevisao = ia.cor;
-      const cores = ["⚪ Branco", "🔴 Vermelho", "⚫ Preto"];
-      texto = `🎯 ${cores[ia.cor]} + 🛡️ Branco`;
-      corTexto = ["white", "red", "black"][ia.cor];
+    let corTexto = "#333", texto = "⌛ Coletando dados...";
+    if (prevIA !== null && prevIA === prevTrad) {
+      ultimaPrevisao = prevIA;
+      texto = ["⚪ Branco", "🔴 Vermelho ⚪", "⚫ Preto ⚪"][prevIA]; // Proteção ⚪
+      corTexto = ["white", "red", "black"][prevIA];
+    } else {
+      ultimaPrevisao = null;
     }
 
     const sugestao = document.getElementById("sugestaoBox");
