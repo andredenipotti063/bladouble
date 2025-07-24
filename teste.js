@@ -1,4 +1,7 @@
 (async function () {
+  // O URL da API foi atualizado para um que está funcionando.
+  const API_BASE_URL = "https://blaze-4.com/api/roulette_games";
+
   if (document.getElementById("doubleBlackPainel")) return;
 
   // ESTILO
@@ -41,7 +44,7 @@
   `;
   document.body.appendChild(painel);
 
-  // Lógica de arrastar o painel (completa)
+  // Lógica de arrastar o painel
   let isDragging = false, startX, startY, initialLeft, initialTop;
   const onDragStart = (x, y) => { isDragging = true; startX = x; startY = y; initialLeft = painel.offsetLeft; initialTop = painel.offsetTop; };
   const onDragMove = (x, y) => { if (!isDragging) return; const dx = x - startX, dy = y - startY; painel.style.left = `${initialLeft + dx}px`; painel.style.top = `${initialTop + dy}px`; };
@@ -59,7 +62,7 @@
   let ultimaPrevisao = null;
   let acertos = 0, erros = 0;
 
-  // FUNÇÃO DE PREVISÃO (sem alterações)
+  // FUNÇÃO DE PREVISÃO
   function prever(h) {
     if (h.length < 10) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
     const count = (arr, val) => arr.filter(n => n === val).length;
@@ -83,61 +86,40 @@
   function atualizarPainel() {
     const { cor, texto, previsao } = prever(historico);
     ultimaPrevisao = previsao;
-
     const sugestao = document.getElementById("sugestaoBox");
     sugestao.textContent = texto;
     sugestao.style.background = cor;
     sugestao.style.color = cor === "white" ? "#000" : "#fff";
-
     const box = document.getElementById("historicoBox");
-    box.innerHTML = historico.slice(0, 15).map(n => {
-        const corClasse = n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist";
-        return `<div class="bolaHist ${corClasse}"></div>`;
-    }).join('');
-
+    box.innerHTML = historico.slice(0, 15).map(n => `<div class="bolaHist ${n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist"}"></div>`).join('');
     const total = acertos + erros;
     const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
     document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
   }
 
-  // FUNÇÃO QUE PROCESSA UM NOVO RESULTADO
+  // PROCESSA UM NOVO RESULTADO
   function processarNovoResultado(novoResultado) {
-      if (!novoResultado || !novoResultado.id || novoResultado.id === ultimoId) {
-          return false; // Sem resultado novo ou ID repetido
-      }
-      
+      if (!novoResultado || !novoResultado.id || novoResultado.id === ultimoId) return false;
       historico.unshift(novoResultado.color);
       if (historico.length > 50) historico.pop();
-
       if (ultimaPrevisao !== null) {
-          const acertouPrevisao = (novoResultado.color === ultimaPrevisao);
-          const protegidoNoBranco = (novoResultado.color === 0 && (ultimaPrevisao === 1 || ultimaPrevisao === 2));
-          if (acertouPrevisao || protegidoNoBranco) {
-              acertos++;
-          } else {
-              erros++;
-          }
+          const acertou = (novoResultado.color === ultimaPrevisao) || (novoResultado.color === 0 && (ultimaPrevisao === 1 || ultimaPrevisao === 2));
+          if (acertou) acertos++; else erros++;
       }
-      
       ultimoId = novoResultado.id;
-      return true; // Um novo resultado foi processado
+      return true;
   }
-
-  // --- NOVAS FUNÇÕES DE INICIALIZAÇÃO E ATUALIZAÇÃO ---
 
   // 1. CARREGA O HISTÓRICO INICIAL
   async function carregarHistoricoInicial() {
     try {
-      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent");
+      const res = await fetch(`${API_BASE_URL}/recent`);
       const data = await res.json();
       if (data && data.length > 0) {
-        // Limpa o histórico antes de popular
         historico.length = 0; 
-        for(const item of data.reverse()) { // Inverte para popular do mais antigo ao mais novo
-            historico.unshift(item.color);
-        }
+        data.reverse().forEach(item => historico.unshift(item.color));
         ultimoId = data[data.length - 1].id;
-        console.log(`Histórico inicial carregado com ${historico.length} resultados.`);
+        console.log(`✅ Histórico inicial carregado com ${historico.length} resultados.`);
         atualizarPainel();
       }
     } catch (e) {
@@ -146,21 +128,21 @@
     }
   }
 
-  // 2. VERIFICA APENAS O ÚLTIMO RESULTADO (para o loop)
+  // 2. VERIFICA APENAS O ÚLTIMO RESULTADO
   async function verificarUltimo() {
     try {
-      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
+      const res = await fetch(`${API_BASE_URL}/recent/1`);
       const data = await res.json();
       if (processarNovoResultado(data[0])) {
-        atualizarPainel(); // Atualiza o painel somente se houver uma novidade
+        atualizarPainel();
       }
     } catch (e) {
-      console.error("Erro ao verificar último resultado:", e);
+      console.error("Erro ao verificar último:", e);
     }
   }
 
   // INICIA O SCRIPT
   await carregarHistoricoInicial();
-  setInterval(verificarUltimo, 3500); // Verifica por novidades a cada 3.5 segundos
+  setInterval(verificarUltimo, 3500);
 
 })();
