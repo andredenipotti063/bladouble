@@ -1,6 +1,6 @@
 (async function () {
-  // ATUALIZAÇÃO: Usando o endpoint principal da Blaze (.com) que é mais estável.
-  const API_BASE_URL = "https://blaze.com/api/roulette_games";
+  // ATUALIZAÇÃO: Usando o endpoint exato que você forneceu.
+  const API_BASE_URL = "https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games";
 
   if (document.getElementById("doubleBlackPainel")) return;
 
@@ -110,7 +110,7 @@
       return true;
   }
 
-  // 1. CARREGA O HISTÓRICO INICIAL
+  // 1. CARREGA O HISTÓRICO INICIAL (usando /recent para pegar a lista completa)
   async function carregarHistoricoInicial() {
     try {
       const res = await fetch(`${API_BASE_URL}/recent`);
@@ -128,7 +128,7 @@
     }
   }
 
-  // 2. VERIFICA APENAS O ÚLTIMO RESULTADO
+  // 2. VERIFICA APENAS O ÚLTIMO RESULTADO (usando /recent/1, como você pediu)
   async function verificarUltimo() {
     try {
       const res = await fetch(`${API_BASE_URL}/recent/1`);
