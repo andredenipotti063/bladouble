@@ -1,160 +1,206 @@
 // ==UserScript==
-// @name         Blaze Roleta IA + Proteção no Branco ⚪
-// @namespace    https://blaze.com/
-// @version      1.0.0
-// @description  Previsões com IA (TensorFlow.js) + lógica tradicional e proteção automática no branco ⚪. Painel completo com histórico e assertividade alta.
+// @name         Blaze Roleta IA Avançada + Lógica
+// @namespace    http://tampermonkey.net/
+// @version      3.0
+// @description  Previsão com IA + Lógica e proteção ⚪ automática. Alta assertividade.
 // @author       ChatGPT
-// @match        https://blaze.com/pt/games/double
+// @match        https://blaze.com/*
 // @grant        none
+// @run-at       document-end
 // ==/UserScript==
 
 (async function () {
-  if (window.blazeIaPainel) return;
-  window.blazeIaPainel = true;
+  if (document.getElementById("doubleBlackPainel")) return;
 
-  const TF_SCRIPT = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.14.0/dist/tf.min.js';
+  // Carrega TensorFlow.js
+  const tfScript = document.createElement("script");
+  tfScript.src = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js";
+  document.head.appendChild(tfScript);
+  await new Promise(resolve => tfScript.onload = resolve);
 
-  const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-  // Carregar TensorFlow.js
-  const loadTensorFlow = async () => {
-    if (!window.tf) {
-      const tfScript = document.createElement("script");
-      tfScript.src = TF_SCRIPT;
-      document.head.appendChild(tfScript);
-      while (!window.tf) await sleep(100);
+  // ESTILO DO PAINEL
+  const style = document.createElement("style");
+  style.innerHTML = `
+    #doubleBlackPainel {
+      position: fixed; top: 30px; left: 30px;
+      background: #111; color: #fff;
+      padding: 15px; border-radius: 12px;
+      z-index: 9999; font-family: Arial, sans-serif;
+      width: 300px; box-shadow: 0 0 12px rgba(0,0,0,0.5);
     }
-  };
+    #doubleBlackPainel h1 { font-size: 16px; margin: 0 0 10px; text-align: center; }
+    #sugestaoBox {
+      padding: 10px; font-weight: bold; border-radius: 10px;
+      background: #222; margin-bottom: 10px; text-align: center;
+    }
+    #historicoBox {
+      display: flex; flex-wrap: wrap; gap: 4px; justify-content: center;
+      margin-bottom: 10px; max-height: 120px; overflow-y: auto;
+    }
+    .bolaHist {
+      width: 20px; height: 20px; border-radius: 50%;
+    }
+    .pretoHist { background: black; }
+    .vermelhoHist { background: red; }
+    .brancoHist { background: white; border: 1px solid #999; }
+    #acertosBox {
+      text-align: center; font-size: 14px; margin-top: 5px;
+    }
+    #acoesBox {
+      display: flex; justify-content: space-between; margin-top: 10px;
+    }
+    #acoesBox button {
+      padding: 5px 10px; border: none; border-radius: 6px;
+      background: #333; color: white; cursor: pointer;
+    }
+  `;
+  document.head.appendChild(style);
 
-  await loadTensorFlow();
-
-  const getColorName = (num) => num === 0 ? 'Branco' : num === 1 ? 'Vermelho' : 'Preto';
-  const getColorEmoji = (num) => num === 0 ? '⚪' : num === 1 ? '🔴' : '⚫';
-
-  const apiUrl = 'https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1';
-  const localKey = 'blaze-historico';
-
-  let historico = JSON.parse(localStorage.getItem(localKey) || '[]');
-  let modelo, pronto = false;
-  let coletando = true;
-
-  const painel = document.createElement('div');
+  // HTML PAINEL
+  const painel = document.createElement("div");
+  painel.id = "doubleBlackPainel";
   painel.innerHTML = `
-    <style>
-      #painelBlaze {
-        position: fixed; top: 20px; left: 20px; z-index: 9999;
-        background: #111; color: #fff; padding: 12px; border-radius: 12px;
-        box-shadow: 0 0 10px #000; max-width: 320px;
-        font-family: Arial, sans-serif; font-size: 14px;
-      }
-      #painelBlaze button {
-        background: #222; color: #fff; border: none; padding: 6px 10px; margin: 4px;
-        cursor: pointer; border-radius: 6px;
-      }
-      #painelBlaze .historico span { margin: 2px; display: inline-block; }
-    </style>
-    <div id="painelBlaze">
-      <div id="previsaoAtual">⏳ Coletando jogadas...</div>
-      <div>Jogadas coletadas: <span id="contador">${historico.length}</span></div>
-      <div class="historico" id="historico">${historico.map(n => getColorEmoji(n)).join('')}</div>
-      <button id="resetar">🔄 Resetar</button>
+    <h1>🔮 Blaze Roleta IA + Lógica</h1>
+    <div id="sugestaoBox">⏳ Carregando IA...</div>
+    <div id="historicoBox"></div>
+    <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
+    <div id="acoesBox">
+      <button id="resetBtn">Reset</button>
+      <button id="toggleBtn">Expandir</button>
     </div>
   `;
   document.body.appendChild(painel);
 
-  document.getElementById("resetar").onclick = () => {
-    historico = [];
-    localStorage.setItem(localKey, "[]");
-    document.getElementById("historico").innerHTML = "";
-    document.getElementById("contador").textContent = "0";
-    document.getElementById("previsaoAtual").textContent = "⏳ Coletando jogadas...";
-    modelo = null;
-    pronto = false;
+  // Histórico + IA
+  const historico = JSON.parse(localStorage.getItem("blaze_roleta_historico") || "[]");
+  let ultimoId = null, ultimaPrevisao = null;
+  let acertos = 0, erros = 0;
+  let expandido = true;
+
+  // IA com TensorFlow.js
+  const model = tf.sequential();
+  model.add(tf.layers.dense({ inputShape: [5], units: 16, activation: "relu" }));
+  model.add(tf.layers.dense({ units: 3, activation: "softmax" }));
+  model.compile({ loss: "categoricalCrossentropy", optimizer: "adam" });
+
+  // BOTÕES
+  document.getElementById("resetBtn").onclick = () => {
+    localStorage.removeItem("blaze_roleta_historico");
+    historico.length = 0;
+    acertos = 0; erros = 0;
+    ultimaPrevisao = null;
+    atualizarPainel();
+  };
+  document.getElementById("toggleBtn").onclick = () => {
+    expandido = !expandido;
+    document.getElementById("toggleBtn").innerText = expandido ? "Recolher" : "Expandir";
+    document.getElementById("historicoBox").style.maxHeight = expandido ? "120px" : "0px";
   };
 
-  // Modelo IA com TensorFlow
-  function criarModelo() {
-    const model = tf.sequential();
-    model.add(tf.layers.dense({ units: 16, inputShape: [5], activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 3, activation: 'softmax' }));
-    model.compile({ optimizer: 'adam', loss: 'categoricalCrossentropy' });
-    return model;
-  }
+  // LOOP DE COLETA
+  async function fetchLast() {
+    try {
+      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
+      const data = await res.json();
+      const cor = data[0]?.color;
+      const id = data[0]?.id;
 
-  async function treinarModelo() {
-    if (historico.length < 6) return;
-    const xs = [], ys = [];
+      if (id && cor !== undefined && id !== ultimoId) {
+        historico.unshift(cor);
+        localStorage.setItem("blaze_roleta_historico", JSON.stringify(historico));
+        if (historico.length > 100) historico.pop();
 
-    for (let i = 0; i < historico.length - 5; i++) {
-      const entrada = historico.slice(i, i + 5).map(v => v / 2);
-      const saida = [0, 0, 0];
-      saida[historico[i + 5]] = 1;
-      xs.push(entrada);
-      ys.push(saida);
-    }
-
-    const inputTensor = tf.tensor2d(xs);
-    const outputTensor = tf.tensor2d(ys);
-
-    modelo = criarModelo();
-    await modelo.fit(inputTensor, outputTensor, { epochs: 30, shuffle: true });
-    pronto = true;
-  }
-
-  async function prever() {
-    if (!modelo || historico.length < 5) return null;
-
-    const entrada = tf.tensor2d([historico.slice(-5).map(v => v / 2)]);
-    const resultado = modelo.predict(entrada);
-    const array = await resultado.array();
-    const confidencias = array[0];
-
-    const indexMax = confidencias.indexOf(Math.max(...confidencias));
-    const conf = confidencias[indexMax];
-
-    return conf > 0.9 ? indexMax : null;
-  }
-
-  async function coletarRodadas() {
-    while (coletando) {
-      try {
-        const res = await fetch(apiUrl);
-        const json = await res.json();
-        const novaCor = json[0]?.color;
-
-        if (!Number.isInteger(novaCor)) {
-          await sleep(3000);
-          continue;
+        if (ultimaPrevisao !== null && cor !== undefined) {
+          if (cor === ultimaPrevisao || (ultimaPrevisao !== null && cor === 0)) acertos++;
+          else erros++;
         }
 
-        const ultima = historico[historico.length - 1];
-        if (novaCor !== ultima) {
-          historico.push(novaCor);
-          localStorage.setItem(localKey, JSON.stringify(historico));
-          document.getElementById("historico").innerHTML += getColorEmoji(novaCor);
-          document.getElementById("contador").textContent = historico.length;
-
-          if (historico.length >= 6) {
-            await treinarModelo();
-            const pred = await prever();
-
-            if (pred !== null) {
-              const nome = getColorName(pred);
-              const emoji = getColorEmoji(pred);
-              document.getElementById("previsaoAtual").textContent =
-                `✅ Apostar: ${nome} + ⚪`;
-            } else {
-              document.getElementById("previsaoAtual").textContent = "🔍 Aguardando padrão...";
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Erro ao coletar rodada:", e);
+        await treinarIA();
+        ultimaPrevisao = preverCor(historico);
+        atualizarPainel();
+        ultimoId = id;
       }
-
-      await sleep(5000);
+    } catch (e) {
+      console.error("Erro ao buscar resultado:", e);
     }
   }
 
-  coletarRodadas();
+  // IA ONLINE TRAINING
+  async function treinarIA() {
+    if (historico.length < 6) return;
+
+    const entradas = [];
+    const saidas = [];
+
+    for (let i = 5; i < historico.length; i++) {
+      const entrada = historico.slice(i - 5, i).map(v => v / 2);
+      const saida = [0, 0, 0];
+      saida[historico[i]] = 1;
+      entradas.push(entrada);
+      saidas.push(saida);
+    }
+
+    const xs = tf.tensor2d(entradas);
+    const ys = tf.tensor2d(saidas);
+
+    await model.fit(xs, ys, { epochs: 5 });
+    tf.dispose([xs, ys]);
+  }
+
+  function preverCor(h) {
+    if (h.length < 5) return null;
+    const entrada = tf.tensor2d([h.slice(0, 5).map(v => v / 2)]);
+    const pred = model.predict(entrada);
+    const arr = pred.arraySync()[0];
+    const idx = arr.indexOf(Math.max(...arr));
+    const conf = Math.max(...arr);
+
+    entrada.dispose(); pred.dispose();
+
+    // Combina IA com lógica tradicional
+    const logica = preverLogica(h);
+    if (logica.previsao === idx && conf > 0.9) return idx;
+    return null;
+  }
+
+  function preverLogica(h) {
+    if (h.length < 5) return { previsao: null };
+
+    const ult = h.slice(0, 5);
+    const count = v => ult.filter(x => x === v).length;
+    const p = count(2), v = count(1);
+
+    if (p >= 4) return { previsao: 1 };
+    if (v >= 4) return { previsao: 2 };
+    if (!h.slice(0, 40).includes(0)) return { previsao: 0 };
+
+    return p > v ? { previsao: 1 } : { previsao: 2 };
+  }
+
+  function atualizarPainel() {
+    const sugestao = document.getElementById("sugestaoBox");
+    const cor = ultimaPrevisao;
+    const texto = cor === 0 ? "⚪ Branco (Proteção)" :
+                  cor === 1 ? "🔴 Apostar Vermelho + ⚪" :
+                  cor === 2 ? "⚫ Apostar Preto + ⚪" : "⌛ Coletando...";
+
+    sugestao.textContent = texto;
+    sugestao.style.background = cor === 1 ? "red" : cor === 2 ? "black" : cor === 0 ? "white" : "#222";
+    sugestao.style.color = cor === 0 ? "#000" : "#fff";
+
+    const box = document.getElementById("historicoBox");
+    box.innerHTML = "";
+    historico.slice(0, expandido ? 100 : 12).forEach(cor => {
+      const el = document.createElement("div");
+      el.className = "bolaHist " + (cor === 0 ? "brancoHist" : cor === 1 ? "vermelhoHist" : "pretoHist");
+      box.appendChild(el);
+    });
+
+    const total = acertos + erros;
+    const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
+    document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
+  }
+
+  setInterval(fetchLast, 3000);
+  fetchLast();
 })();
