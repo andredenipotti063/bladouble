@@ -1,155 +1,128 @@
-(async function () {
-  if (document.getElementById("doubleBlackPainel")) return;
+// ==UserScript==
+// @name         🔮 Blaze IA com Lógica Segura
+// @namespace    http://tampermonkey.net/
+// @version      1.0
+// @description  Previsão com lógica segura + proteção no branco
+// @author       chatgpt
+// @match        https://blaze.com/pt/games/double
+// @grant        none
+// ==/UserScript==
 
-  // ESTILO
-  const style = document.createElement("style");
-  style.innerHTML = `
+(function () {
+    'use strict';
+
+    if (document.getElementById("doubleBlackPainel")) return;
+
+    // Styles
+    const style = document.createElement("style");
+    style.innerHTML = `
     #doubleBlackPainel {
-      position: absolute;
-      top: 30px; left: 30px;
-      background: #111; color: #fff;
-      padding: 15px; border-radius: 10px;
-      z-index: 9999;
-      font-family: Arial, sans-serif;
-      width: 260px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        position: fixed; top: 30px; left: 30px;
+        background: #111; color: #fff; z-index: 9999;
+        padding: 15px; border-radius: 15px;
+        font-family: Arial; font-size: 14px;
+        box-shadow: 0 0 15px #000;
     }
-    #doubleBlackPainel h1 {
-      font-size: 16px; margin-bottom: 10px;
-      text-align: center;
+    #doubleBlackPainel h2 {
+        margin: 0 0 10px 0;
+        font-size: 16px;
     }
-    #sugestaoBox {
-      text-align: center;
-      padding: 10px;
-      background: #222;
-      border-radius: 8px;
-      font-weight: bold;
-      margin-bottom: 10px;
-    }
-    #historicoBox {
-      display: flex;
-      justify-content: center;
-      flex-wrap: wrap;
-      gap: 4px;
-      margin-bottom: 10px;
-    }
-    .bolaHist {
-      width: 20px; height: 20px;
-      border-radius: 50%;
-    }
-    .pretoHist { background: black; }
-    .vermelhoHist { background: red; }
-    .brancoHist { background: white; border: 1px solid #999; }
-    #acertosBox {
-      text-align: center;
-      font-size: 14px;
-    }
-  `;
-  document.head.appendChild(style);
+    `;
+    document.head.appendChild(style);
 
-  // HTML PAINEL
-  const painel = document.createElement("div");
-  painel.id = "doubleBlackPainel";
-  painel.innerHTML = `
-    <h1>🔮 Previsão Inteligente</h1>
-    <div id="sugestaoBox">⏳ Aguardando resultados...</div>
-    <div id="historicoBox"></div>
-    <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
-  `;
-  document.body.appendChild(painel);
+    // Painel flutuante
+    const painel = document.createElement("div");
+    painel.id = "doubleBlackPainel";
+    painel.innerHTML = `
+        <h2>🔮 Blaze IA</h2>
+        <div id="historico">Carregando...</div>
+        <div id="previsao" style="margin-top:10px;font-size:16px;"></div>
+    `;
+    document.body.appendChild(painel);
 
-  // LÓGICA
-  const historico = [];
-  let ultimoId = null;
-  let ultimaPrevisao = null;
-  let acertos = 0, erros = 0;
+    // Variáveis
+    let historico = [];
+    let acertos = 0, erros = 0;
 
-  async function buscarUltimoResultado() {
-    try {
-      const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
-      const dados = await res.json();
-      const resultado = dados[0];
-      const cor = resultado?.color;
-      const id = resultado?.id;
+    function atualizarPainel() {
+        const ultimos = historico.slice(-5).join(' ');
+        const total = historico.length;
+        const assertividade = total >= (acertos + erros) ? ((acertos / (acertos + erros)) * 100).toFixed(1) : "-";
+        document.getElementById("historico").innerHTML = `
+            🔴 ⚫ ${ultimos}<br>
+            Jogadas coletadas: ${total}<br>
+            ✅ ${acertos} | ❌ ${erros} | 🎯 ${assertividade}%
+        `;
+    }
 
-      if (id && cor !== undefined && id !== ultimoId) {
-        historico.unshift(cor);
-        if (historico.length > 50) historico.pop();
+    function preverCor(historico) {
+        if (historico.length < 5) return null;
+        const ultimos7 = historico.slice(-7);
 
-        if (ultimaPrevisao !== null) {
-          if (cor === ultimaPrevisao || (cor === 0 && ultimaPrevisao !== null)) acertos++;
-          else erros++;
+        // Contagem simples
+        const red = ultimos7.filter(c => c === 'R').length;
+        const black = ultimos7.filter(c => c === 'B').length;
+        const white = ultimos7.filter(c => c === 'W').length;
+
+        // Repetição exata
+        const repete = historico.slice(-3).every(c => c === historico[historico.length - 1]);
+        if (repete) return historico[historico.length - 1];
+
+        // Tendência
+        if (black >= 5) return 'B';
+        if (red >= 5) return 'R';
+
+        return null; // nada claro
+    }
+
+    // Traduz cores do DOM
+    function interpretarCor(dom) {
+        if (dom.includes('white')) return 'W';
+        if (dom.includes('red')) return 'R';
+        if (dom.includes('black')) return 'B';
+        return null;
+    }
+
+    // Captura o histórico da Blaze
+    function capturarHistorico() {
+        const bolas = document.querySelectorAll(".entry__balls span");
+        if (!bolas || bolas.length < 1) return;
+        const novas = [];
+        bolas.forEach(b => {
+            const cor = interpretarCor(b.className);
+            if (cor) novas.push(cor);
+        });
+        novas.reverse();
+
+        novas.forEach((cor, i) => {
+            if (historico[historico.length - 1] !== cor) {
+                historico.push(cor);
+                atualizarPainel();
+
+                const previsao = preverCor(historico.slice(0, -1));
+                if (previsao) {
+                    const entrada = previsao;
+                    const real = cor;
+                    if (real === entrada || (entrada !== 'W' && real === 'W')) {
+                        acertos++;
+                    } else {
+                        erros++;
+                    }
+                }
+            }
+        });
+
+        const proxima = preverCor(historico);
+        const divPrev = document.getElementById("previsao");
+        if (proxima) {
+            const mostrar = proxima === 'B' ? 'Preto' : proxima === 'R' ? 'Vermelho' : 'Branco';
+            const protecao = proxima !== 'W' ? ' + ⚪' : '';
+            divPrev.innerText = `✅ Apostar: ${mostrar}${protecao}`;
+        } else {
+            divPrev.innerText = '';
         }
-
-        ultimoId = id;
-        atualizarPainel();
-      }
-    } catch (e) {
-      console.error("Erro ao buscar resultado:", e);
-    }
-  }
-
-  function preverCor(h) {
-    if (h.length < 7) return null;
-
-    const ult7 = h.slice(0, 7);
-    const ult40 = h.slice(0, 40);
-    const count = (arr, val) => arr.filter(n => n === val).length;
-
-    // Inversão por repetição
-    if (ult7.slice(0, 4).every(n => n === 2)) return { cor: 1 };
-    if (ult7.slice(0, 4).every(n => n === 1)) return { cor: 2 };
-
-    // Tendência
-    const pretos = count(ult7, 2);
-    const vermelhos = count(ult7, 1);
-    if (pretos >= 5) return { cor: 1 };
-    if (vermelhos >= 5) return { cor: 2 };
-
-    // Alerta de branco
-    if (!ult40.includes(0)) return null;
-
-    // Probabilidade leve
-    if (pretos > vermelhos) return { cor: 1 };
-    if (vermelhos > pretos) return { cor: 2 };
-
-    return null;
-  }
-
-  function atualizarPainel() {
-    const sugestaoBox = document.getElementById("sugestaoBox");
-    const historicoBox = document.getElementById("historicoBox");
-
-    historicoBox.innerHTML = "";
-    historico.slice(0, 12).forEach(cor => {
-      const bola = document.createElement("div");
-      bola.classList.add("bolaHist");
-      if (cor === 2) bola.classList.add("pretoHist");
-      else if (cor === 1) bola.classList.add("vermelhoHist");
-      else bola.classList.add("brancoHist");
-      historicoBox.appendChild(bola);
-    });
-
-    const previsao = preverCor(historico);
-    if (previsao) {
-      ultimaPrevisao = previsao.cor;
-      const corNome = previsao.cor === 1 ? "Vermelho" : "Preto";
-      const corBg = previsao.cor === 1 ? "red" : "black";
-      sugestaoBox.textContent = `✅ Apostar: ${corNome} + ⚪`;
-      sugestaoBox.style.background = corBg;
-      sugestaoBox.style.color = "#fff";
-    } else {
-      ultimaPrevisao = null;
-      sugestaoBox.textContent = "⏳ Aguardando oportunidade...";
-      sugestaoBox.style.background = "#222";
-      sugestaoBox.style.color = "#fff";
     }
 
-    const total = acertos + erros;
-    const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : "0.0";
-    document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
-  }
-
-  await buscarUltimoResultado();
-  setInterval(buscarUltimoResultado, 3000);
+    // Intervalo
+    setInterval(capturarHistorico, 2000);
 })();
