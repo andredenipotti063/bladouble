@@ -1,6 +1,6 @@
 (async function () {
-  // O URL da API foi atualizado para um que está funcionando.
-  const API_BASE_URL = "https://blaze-4.com/api/roulette_games";
+  // ATUALIZAÇÃO: Usando o endpoint principal da Blaze (.com) que é mais estável.
+  const API_BASE_URL = "https://blaze.com/api/roulette_games";
 
   if (document.getElementById("doubleBlackPainel")) return;
 
