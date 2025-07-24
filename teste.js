@@ -1,44 +1,31 @@
-// ==UserScript==
-// @name         Blaze Roleta IA Avançada + Lógica
-// @namespace    http://tampermonkey.net/
-// @version      3.0
-// @description  Previsão com IA + Lógica e proteção ⚪ automática. Alta assertividade.
-// @author       ChatGPT
-// @match        https://blaze.com/*
-// @grant        none
-// @run-at       document-end
-// ==/UserScript==
-
 (async function () {
   if (document.getElementById("doubleBlackPainel")) return;
 
-  // Carrega TensorFlow.js
-  const tfScript = document.createElement("script");
-  tfScript.src = "https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.10.0/dist/tf.min.js";
-  document.head.appendChild(tfScript);
-  await new Promise(resolve => tfScript.onload = resolve);
-
-  // ESTILO DO PAINEL
+  // STYLE
   const style = document.createElement("style");
   style.innerHTML = `
     #doubleBlackPainel {
       position: fixed; top: 30px; left: 30px;
       background: #111; color: #fff;
-      padding: 15px; border-radius: 12px;
+      padding: 15px; border-radius: 10px;
       z-index: 9999; font-family: Arial, sans-serif;
-      width: 300px; box-shadow: 0 0 12px rgba(0,0,0,0.5);
+      width: 280px; box-shadow: 0 0 10px rgba(0,0,0,0.4);
+      user-select: none; cursor: move;
     }
-    #doubleBlackPainel h1 { font-size: 16px; margin: 0 0 10px; text-align: center; }
+    #doubleBlackPainel h1 { margin: 0 0 10px; font-size: 16px; text-align: center; }
     #sugestaoBox {
-      padding: 10px; font-weight: bold; border-radius: 10px;
-      background: #222; margin-bottom: 10px; text-align: center;
+      padding: 10px; text-align: center;
+      font-weight: bold; border-radius: 8px;
+      background-color: #222; margin-bottom: 10px;
     }
     #historicoBox {
-      display: flex; flex-wrap: wrap; gap: 4px; justify-content: center;
-      margin-bottom: 10px; max-height: 120px; overflow-y: auto;
+      display: flex; flex-wrap: wrap; justify-content: center;
+      gap: 4px; margin-bottom: 10px;
     }
     .bolaHist {
-      width: 20px; height: 20px; border-radius: 50%;
+      width: 20px; height: 20px;
+      border-radius: 50%;
+      border: 1px solid #333;
     }
     .pretoHist { background: black; }
     .vermelhoHist { background: red; }
@@ -46,59 +33,46 @@
     #acertosBox {
       text-align: center; font-size: 14px; margin-top: 5px;
     }
-    #acoesBox {
-      display: flex; justify-content: space-between; margin-top: 10px;
-    }
-    #acoesBox button {
-      padding: 5px 10px; border: none; border-radius: 6px;
-      background: #333; color: white; cursor: pointer;
-    }
   `;
   document.head.appendChild(style);
 
-  // HTML PAINEL
+  // HTML PANEL
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
-    <h1>🔮 Blaze Roleta IA + Lógica</h1>
-    <div id="sugestaoBox">⏳ Carregando IA...</div>
+    <h1>🔮 Previsão Inteligente</h1>
+    <div id="sugestaoBox">⏳ Carregando...</div>
     <div id="historicoBox"></div>
     <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
-    <div id="acoesBox">
-      <button id="resetBtn">Reset</button>
-      <button id="toggleBtn">Expandir</button>
-    </div>
   `;
   document.body.appendChild(painel);
 
-  // Histórico + IA
-  const historico = JSON.parse(localStorage.getItem("blaze_roleta_historico") || "[]");
-  let ultimoId = null, ultimaPrevisao = null;
+  // Movimentação (arrastar)
+  let isDragging = false, startX, startY, startLeft, startTop;
+  painel.addEventListener("mousedown", e => {
+    isDragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    startLeft = painel.offsetLeft;
+    startTop = painel.offsetTop;
+    e.preventDefault();
+  });
+  document.addEventListener("mousemove", e => {
+    if (!isDragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    painel.style.left = startLeft + dx + "px";
+    painel.style.top = startTop + dy + "px";
+  });
+  document.addEventListener("mouseup", () => isDragging = false);
+
+  // Histórico
+  const historico = [];
+  let ultimoId = null;
+  let ultimaPrevisao = null;
   let acertos = 0, erros = 0;
-  let expandido = true;
 
-  // IA com TensorFlow.js
-  const model = tf.sequential();
-  model.add(tf.layers.dense({ inputShape: [5], units: 16, activation: "relu" }));
-  model.add(tf.layers.dense({ units: 3, activation: "softmax" }));
-  model.compile({ loss: "categoricalCrossentropy", optimizer: "adam" });
-
-  // BOTÕES
-  document.getElementById("resetBtn").onclick = () => {
-    localStorage.removeItem("blaze_roleta_historico");
-    historico.length = 0;
-    acertos = 0; erros = 0;
-    ultimaPrevisao = null;
-    atualizarPainel();
-  };
-  document.getElementById("toggleBtn").onclick = () => {
-    expandido = !expandido;
-    document.getElementById("toggleBtn").innerText = expandido ? "Recolher" : "Expandir";
-    document.getElementById("historicoBox").style.maxHeight = expandido ? "120px" : "0px";
-  };
-
-  // LOOP DE COLETA
-  async function fetchLast() {
+  async function fetchRodada() {
     try {
       const res = await fetch("https://blaze.bet.br/api/singleplayer-originals/originals/roulette_games/recent/1");
       const data = await res.json();
@@ -107,92 +81,65 @@
 
       if (id && cor !== undefined && id !== ultimoId) {
         historico.unshift(cor);
-        localStorage.setItem("blaze_roleta_historico", JSON.stringify(historico));
         if (historico.length > 100) historico.pop();
 
-        if (ultimaPrevisao !== null && cor !== undefined) {
-          if (cor === ultimaPrevisao || (ultimaPrevisao !== null && cor === 0)) acertos++;
+        if (ultimaPrevisao !== null) {
+          if (cor === ultimaPrevisao || cor === 0) acertos++;
           else erros++;
         }
 
-        await treinarIA();
-        ultimaPrevisao = preverCor(historico);
-        atualizarPainel();
         ultimoId = id;
+        atualizarPainel();
       }
     } catch (e) {
-      console.error("Erro ao buscar resultado:", e);
+      console.error("Erro ao buscar dados:", e);
     }
-  }
-
-  // IA ONLINE TRAINING
-  async function treinarIA() {
-    if (historico.length < 6) return;
-
-    const entradas = [];
-    const saidas = [];
-
-    for (let i = 5; i < historico.length; i++) {
-      const entrada = historico.slice(i - 5, i).map(v => v / 2);
-      const saida = [0, 0, 0];
-      saida[historico[i]] = 1;
-      entradas.push(entrada);
-      saidas.push(saida);
-    }
-
-    const xs = tf.tensor2d(entradas);
-    const ys = tf.tensor2d(saidas);
-
-    await model.fit(xs, ys, { epochs: 5 });
-    tf.dispose([xs, ys]);
   }
 
   function preverCor(h) {
-    if (h.length < 5) return null;
-    const entrada = tf.tensor2d([h.slice(0, 5).map(v => v / 2)]);
-    const pred = model.predict(entrada);
-    const arr = pred.arraySync()[0];
-    const idx = arr.indexOf(Math.max(...arr));
-    const conf = Math.max(...arr);
+    if (h.length < 5)
+      return { cor: "#333", texto: "⌛ Aguardando dados...", previsao: null };
 
-    entrada.dispose(); pred.dispose();
+    const ult = h.slice(0, 7);
+    const ult50 = h.slice(0, 50);
+    const count = (arr, val) => arr.filter(x => x === val).length;
 
-    // Combina IA com lógica tradicional
-    const logica = preverLogica(h);
-    if (logica.previsao === idx && conf > 0.9) return idx;
-    return null;
-  }
+    const pretos = count(ult, 2);
+    const vermelhos = count(ult, 1);
 
-  function preverLogica(h) {
-    if (h.length < 5) return { previsao: null };
+    // Reversão após sequência
+    if (ult.slice(0, 4).every(v => v === 2)) return { cor: "red", texto: "🔁 Inverter: Apostar Vermelho + ⚪", previsao: 1 };
+    if (ult.slice(0, 4).every(v => v === 1)) return { cor: "black", texto: "🔁 Inverter: Apostar Preto + ⚪", previsao: 2 };
 
-    const ult = h.slice(0, 5);
-    const count = v => ult.filter(x => x === v).length;
-    const p = count(2), v = count(1);
+    // Tendência
+    if (pretos >= 5) return { cor: "black", texto: "📈 Tendência: Preto + ⚪", previsao: 2 };
+    if (vermelhos >= 5) return { cor: "red", texto: "📈 Tendência: Vermelho + ⚪", previsao: 1 };
 
-    if (p >= 4) return { previsao: 1 };
-    if (v >= 4) return { previsao: 2 };
-    if (!h.slice(0, 40).includes(0)) return { previsao: 0 };
+    // Alerta de Branco
+    if (!ult50.includes(0) && ultimaPrevisao !== 0)
+      return { cor: "white", texto: "⚪ Alerta de Branco", previsao: 0 };
 
-    return p > v ? { previsao: 1 } : { previsao: 2 };
+    // Probabilidade geral
+    return pretos > vermelhos
+      ? { cor: "red", texto: "🤖 Probabilidade: Vermelho + ⚪", previsao: 1 }
+      : { cor: "black", texto: "🤖 Probabilidade: Preto + ⚪", previsao: 2 };
   }
 
   function atualizarPainel() {
-    const sugestao = document.getElementById("sugestaoBox");
-    const cor = ultimaPrevisao;
-    const texto = cor === 0 ? "⚪ Branco (Proteção)" :
-                  cor === 1 ? "🔴 Apostar Vermelho + ⚪" :
-                  cor === 2 ? "⚫ Apostar Preto + ⚪" : "⌛ Coletando...";
+    const ult = historico.slice(0, 12);
+    const { cor, texto, previsao } = preverCor(historico);
+    ultimaPrevisao = previsao;
 
-    sugestao.textContent = texto;
-    sugestao.style.background = cor === 1 ? "red" : cor === 2 ? "black" : cor === 0 ? "white" : "#222";
-    sugestao.style.color = cor === 0 ? "#000" : "#fff";
+    const sugestao = document.getElementById("sugestaoBox");
+    sugestao.textContent = `✅ Apostar: ${texto}`;
+    sugestao.style.background = cor;
+    sugestao.style.color = cor === "white" ? "#000" : "#fff";
 
     const box = document.getElementById("historicoBox");
     box.innerHTML = "";
-    historico.slice(0, expandido ? 100 : 12).forEach(cor => {
+    ult.forEach(cor => {
       const el = document.createElement("div");
-      el.className = "bolaHist " + (cor === 0 ? "brancoHist" : cor === 1 ? "vermelhoHist" : "pretoHist");
+      el.className = "bolaHist " + (cor === 0 ? "brancoHist" : cor === 2 ? "pretoHist" : "vermelhoHist");
       box.appendChild(el);
     });
 
@@ -201,6 +148,7 @@
     document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
   }
 
-  setInterval(fetchLast, 3000);
-  fetchLast();
+  // Início
+  await fetchRodada();
+  setInterval(fetchRodada, 3000);
 })();
