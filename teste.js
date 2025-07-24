@@ -1,30 +1,16 @@
-// ==UserScript==
-// @name         Blaze Roleta IA + Lógica com Painel
-// @namespace    http://tampermonkey.net/
-// @version      1.0
-// @description  Previsão de cor na Roleta Blaze com IA + lógica combinadas. Alta precisão e proteção no branco.
-// @author       ChatGPT
-// @match        https://blaze.com/pt/games/double
-// @grant        none
-// ==/UserScript==
-
 (async function () {
   if (document.getElementById("doubleBlackPainel")) return;
 
-  // CSS
   const style = document.createElement("style");
   style.innerHTML = `
     #doubleBlackPainel {
-      position: absolute;
-      top: 30px; left: 30px;
+      position: absolute; top: 30px; left: 30px;
       background: #111; color: #fff;
       padding: 15px; border-radius: 10px;
       z-index: 9999; font-family: Arial, sans-serif;
       width: 280px; box-shadow: 0 0 10px rgba(0,0,0,0.4); cursor: move;
     }
-    #doubleBlackPainel h1 {
-      margin: 0 0 10px; font-size: 16px; text-align: center;
-    }
+    #doubleBlackPainel h1 { margin: 0 0 10px; font-size: 16px; text-align: center; }
     #sugestaoBox {
       padding: 10px; text-align: center;
       font-weight: bold; border-radius: 8px;
@@ -42,18 +28,17 @@
   `;
   document.head.appendChild(style);
 
-  // PAINEL
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
     <h1>🔮 Previsão Inteligente</h1>
-    <div id="sugestaoBox">⏳ Coletando dados...</div>
+    <div id="sugestaoBox">⏳ Aguardando jogadas...</div>
     <div id="historicoBox"></div>
     <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
   `;
   document.body.appendChild(painel);
 
-  // Movimento
+  // Movimento do painel
   let isDragging = false;
   let startX, startY, initialLeft, initialTop;
   function onDragStart(x, y) {
@@ -64,23 +49,24 @@
   }
   function onDragMove(x, y) {
     if (!isDragging) return;
-    const dx = x - startX;
-    const dy = y - startY;
-    painel.style.left = initialLeft + dx + "px";
-    painel.style.top = initialTop + dy + "px";
+    painel.style.left = initialLeft + (x - startX) + "px";
+    painel.style.top = initialTop + (y - startY) + "px";
   }
-  painel.addEventListener("mousedown", (e) => {
-    e.preventDefault(); onDragStart(e.clientX, e.clientY);
+  painel.addEventListener("mousedown", e => {
+    e.preventDefault();
+    onDragStart(e.clientX, e.clientY);
   });
-  document.addEventListener("mousemove", (e) => onDragMove(e.clientX, e.clientY));
+  document.addEventListener("mousemove", e => onDragMove(e.clientX, e.clientY));
   document.addEventListener("mouseup", () => isDragging = false);
-  painel.addEventListener("touchstart", (e) => {
+
+  // Toque móvel
+  painel.addEventListener("touchstart", e => {
     if (e.touches.length === 1) {
       const touch = e.touches[0];
       onDragStart(touch.clientX, touch.clientY);
     }
   }, { passive: false });
-  document.addEventListener("touchmove", (e) => {
+  document.addEventListener("touchmove", e => {
     if (isDragging && e.touches.length === 1) {
       const touch = e.touches[0];
       onDragMove(touch.clientX, touch.clientY);
@@ -88,7 +74,7 @@
   }, { passive: false });
   document.addEventListener("touchend", () => isDragging = false);
 
-  // Lógica de previsão
+  // Lógica
   const historico = [];
   let ultimoId = null;
   let ultimaPrevisao = null;
@@ -106,7 +92,7 @@
         if (historico.length > 50) historico.pop();
 
         if (ultimaPrevisao !== null) {
-          if (cor === ultimaPrevisao || (cor === 0 && ultimaPrevisao === 0)) acertos++;
+          if (cor === ultimaPrevisao || (cor === 0 && ultimaPrevisao !== null)) acertos++;
           else erros++;
         }
 
@@ -114,7 +100,7 @@
         atualizarPainel();
       }
     } catch (e) {
-      console.error("Erro ao buscar API:", e);
+      console.error("❌ Erro ao buscar API:", e);
     }
   }
 
@@ -125,51 +111,51 @@
     const ult40 = h.slice(0, 40);
     const count = (arr, val) => arr.filter(n => n === val).length;
 
-    // Inversão se 4 seguidos
-    if (ult7.slice(0, 4).every(n => n === 2)) return { previsao: 1, texto: "🔁 Apostar: Vermelho + ⚪", cor: "red" };
-    if (ult7.slice(0, 4).every(n => n === 1)) return { previsao: 2, texto: "🔁 Apostar: Preto + ⚪", cor: "black" };
+    if (ult7.slice(0, 4).every(n => n === 2)) return { entrada: 1, texto: "🔁 Inverter: Apostar Vermelho" };
+    if (ult7.slice(0, 4).every(n => n === 1)) return { entrada: 2, texto: "🔁 Inverter: Apostar Preto" };
 
     const pretos = count(ult7, 2);
     const vermelhos = count(ult7, 1);
-    const brancos = count(ult40, 0);
+    if (pretos >= 5) return { entrada: 1, texto: "📊 Tendência: Apostar Vermelho" };
+    if (vermelhos >= 5) return { entrada: 2, texto: "📊 Tendência: Apostar Preto" };
 
-    if (pretos >= 5) return { previsao: 1, texto: "📊 Tendência: Vermelho + ⚪", cor: "red" };
-    if (vermelhos >= 5) return { previsao: 2, texto: "📊 Tendência: Preto + ⚪", cor: "black" };
-
-    if (!ult40.includes(0) && ultimaPrevisao !== 0 && (pretos >= 3 || vermelhos >= 3)) {
-      return {
-        previsao: pretos > vermelhos ? 1 : 2,
-        texto: `⚠️ Entrada: ${pretos > vermelhos ? "Vermelho" : "Preto"} + ⚪`,
-        cor: pretos > vermelhos ? "red" : "black"
-      };
+    if (!ult40.includes(0) && ultimaPrevisao !== 0) {
+      return { entrada: null, texto: "⚠️ Alerta de Branco — Não apostar agora" };
     }
+
+    // Probabilidade simples
+    if (pretos > vermelhos) return { entrada: 1, texto: "🤖 Probabilidade: Apostar Vermelho" };
+    if (vermelhos > pretos) return { entrada: 2, texto: "🤖 Probabilidade: Apostar Preto" };
 
     return null;
   }
 
   function atualizarPainel() {
     const ult = historico.slice(0, 12);
-    const resultado = prever(historico);
     const sugestao = document.getElementById("sugestaoBox");
-
-    if (resultado) {
-      sugestao.textContent = "✅ " + resultado.texto;
-      sugestao.style.background = resultado.cor;
-      sugestao.style.color = resultado.cor === "white" ? "#000" : "#fff";
-      ultimaPrevisao = resultado.previsao;
-    } else {
-      sugestao.textContent = "⏳ Coletando dados...";
-      sugestao.style.background = "#333";
-      ultimaPrevisao = null;
-    }
-
     const box = document.getElementById("historicoBox");
+
+    const previsao = prever(historico);
     box.innerHTML = "";
     ult.forEach(n => {
       const el = document.createElement("div");
       el.className = "bolaHist " + (n === 0 ? "brancoHist" : n === 2 ? "pretoHist" : "vermelhoHist");
       box.appendChild(el);
     });
+
+    if (previsao && previsao.entrada !== null) {
+      ultimaPrevisao = previsao.entrada;
+      const corTexto = previsao.entrada === 2 ? "Preto" : "Vermelho";
+      const corBg = previsao.entrada === 2 ? "black" : "red";
+      sugestao.textContent = `✅ Apostar: ${corTexto} + ⚪`;
+      sugestao.style.background = corBg;
+      sugestao.style.color = "#fff";
+    } else {
+      ultimaPrevisao = null;
+      sugestao.textContent = previsao ? previsao.texto : "⏳ Coletando dados...";
+      sugestao.style.background = "#222";
+      sugestao.style.color = "#fff";
+    }
 
     const total = acertos + erros;
     const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
