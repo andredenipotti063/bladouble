@@ -29,7 +29,6 @@
   `;
   document.head.appendChild(style);
 
-  // HTML PAINEL
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
@@ -40,7 +39,6 @@
   `;
   document.body.appendChild(painel);
 
-  // Movimento do painel (mouse + toque)
   let isDragging = false;
   let startX, startY, initialLeft, initialTop;
 
@@ -83,7 +81,6 @@
 
   document.addEventListener("touchend", () => isDragging = false);
 
-  // Lógica de previsão
   const historico = [];
   let ultimoId = null;
   let ultimaPrevisao = null;
@@ -114,37 +111,32 @@
   }
 
   function prever(h) {
-    if (h.length < 7) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
+    if (h.length < 6) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
 
-    const ult7 = h.slice(0, 7);
     const count = (arr, val) => arr.filter(n => n === val).length;
 
-    const pretos = count(ult7, 2);
-    const vermelhos = count(ult7, 1);
+    // Estratégia 1: Tendência (4 ou mais da mesma cor em 6)
+    if (count(h.slice(0, 6), 1) >= 4) return { cor: "black", texto: "📈 Tendência Vermelho → Preto", previsao: 2 };
+    if (count(h.slice(0, 6), 2) >= 4) return { cor: "red", texto: "📈 Tendência Preto → Vermelho", previsao: 1 };
 
-    // Alternância zigue-zague (ex: 1,2,1,2...)
-    if (ult7.slice(0, 6).every((v, i, a) => i === 0 || v !== a[i - 1])) {
-      const ultima = ult7[0];
-      const proxima = ultima === 1 ? 2 : 1;
-      return {
-        cor: proxima === 1 ? "red" : "black",
-        texto: "🔁 Zigue-zague: Apostar " + (proxima === 1 ? "Vermelho" : "Preto"),
-        previsao: proxima
-      };
+    // Estratégia 2: Alternância (zigue-zague nas últimas 6)
+    const zigzag = h.slice(0, 6).every((v, i, a) => i < a.length - 1 ? v !== a[i + 1] : true);
+    if (zigzag) return { cor: h[0] === 1 ? "black" : "red", texto: "🔄 Alternância: Quebra Esperada", previsao: h[0] === 1 ? 2 : 1 };
+
+    // Estratégia 3: Repetição extrema (4 ou mais seguidos)
+    if (h[0] === h[1] && h[1] === h[2] && h[2] === h[3]) {
+      return { cor: h[0] === 1 ? "black" : "red", texto: "🔁 Inversão após Repetição", previsao: h[0] === 1 ? 2 : 1 };
     }
 
-    // Repetição de 4 ou mais
-    if (ult7.slice(0, 4).every(n => n === 2)) return { cor: "red", texto: "🔁 Inversão: Apostar Vermelho", previsao: 1 };
-    if (ult7.slice(0, 4).every(n => n === 1)) return { cor: "black", texto: "🔁 Inversão: Apostar Preto", previsao: 2 };
+    // Estratégia 4: Isolamento
+    if (h[0] !== h[1] && h[1] === h[2] && h[2] !== h[3]) {
+      return { cor: h[0] === 1 ? "black" : "red", texto: "⚠️ Isolamento: Provável quebra", previsao: h[0] === 1 ? 2 : 1 };
+    }
 
-    // Tendência de cor dominante
-    if (pretos >= 5) return { cor: "red", texto: "📊 Tendência Preto → Vermelho", previsao: 1 };
-    if (vermelhos >= 5) return { cor: "black", texto: "📊 Tendência Vermelho → Preto", previsao: 2 };
-
-    // Probabilidade comum
-    return pretos > vermelhos
-      ? { cor: "red", texto: "🤖 Probabilidade: Vermelho", previsao: 1 }
-      : { cor: "black", texto: "🤖 Probabilidade: Preto", previsao: 2 };
+    // Estratégia 5: Fallback comum
+    return count(h, 1) > count(h, 2)
+      ? { cor: "black", texto: "🤖 Probabilidade: Preto", previsao: 2 }
+      : { cor: "red", texto: "🤖 Probabilidade: Vermelho", previsao: 1 };
   }
 
   function atualizarPainel() {
