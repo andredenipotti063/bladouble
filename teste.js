@@ -1,6 +1,7 @@
 (async function () {
   if (document.getElementById("doubleBlackPainel")) return;
 
+  // ESTILO
   const style = document.createElement("style");
   style.innerHTML = `
     #doubleBlackPainel {
@@ -28,37 +29,61 @@
   `;
   document.head.appendChild(style);
 
+  // HTML PAINEL
   const painel = document.createElement("div");
   painel.id = "doubleBlackPainel";
   painel.innerHTML = `
-    <h1>Previsão Inteligente</h1>
-    <div id="sugestaoBox">Carregando...</div>
+    <h1>🔮 Previsão Inteligente</h1>
+    <div id="sugestaoBox">⏳ Carregando...</div>
     <div id="historicoBox"></div>
     <div id="acertosBox">✅ 0 | ❌ 0 | 🎯 0%</div>
   `;
   document.body.appendChild(painel);
 
-  // Arrastar painel
-  let isDragging = false, startX, startY, initialLeft, initialTop;
+  // Movimento do painel (mouse + toque)
+  let isDragging = false;
+  let startX, startY, initialLeft, initialTop;
+
   function onDragStart(x, y) {
     isDragging = true;
-    startX = x; startY = y;
+    startX = x;
+    startY = y;
     initialLeft = painel.offsetLeft;
     initialTop = painel.offsetTop;
   }
+
   function onDragMove(x, y) {
     if (!isDragging) return;
-    const dx = x - startX, dy = y - startY;
+    const dx = x - startX;
+    const dy = y - startY;
     painel.style.left = initialLeft + dx + "px";
     painel.style.top = initialTop + dy + "px";
   }
 
   painel.addEventListener("mousedown", (e) => {
-    e.preventDefault(); onDragStart(e.clientX, e.clientY);
+    e.preventDefault();
+    onDragStart(e.clientX, e.clientY);
   });
   document.addEventListener("mousemove", (e) => onDragMove(e.clientX, e.clientY));
   document.addEventListener("mouseup", () => isDragging = false);
 
+  painel.addEventListener("touchstart", (e) => {
+    if (e.touches.length === 1) {
+      const touch = e.touches[0];
+      onDragStart(touch.clientX, touch.clientY);
+    }
+  }, { passive: false });
+
+  document.addEventListener("touchmove", (e) => {
+    if (isDragging && e.touches.length === 1) {
+      const touch = e.touches[0];
+      onDragMove(touch.clientX, touch.clientY);
+    }
+  }, { passive: false });
+
+  document.addEventListener("touchend", () => isDragging = false);
+
+  // Lógica de previsão
   const historico = [];
   let ultimoId = null;
   let ultimaPrevisao = null;
@@ -84,12 +109,12 @@
         atualizarPainel();
       }
     } catch (e) {
-      console.error("Erro ao buscar API:", e);
+      console.error("❌ Erro ao buscar API:", e);
     }
   }
 
   function prever(h) {
-    if (h.length < 7) return { cor: "#333", texto: "Coletando dados...", previsao: null };
+    if (h.length < 7) return { cor: "#333", texto: "⌛ Coletando dados...", previsao: null };
 
     const ult7 = h.slice(0, 7);
     const ult40 = h.slice(0, 40);
@@ -98,45 +123,48 @@
     const pretos = count(ult7, 2);
     const vermelhos = count(ult7, 1);
 
-    // Estratégia 1: Repetição
-    if (pretos >= 5) return { cor: "red", texto: "Tendência: Preto → Apostar Vermelho", previsao: 1 };
-    if (vermelhos >= 5) return { cor: "black", texto: "Tendência: Vermelho → Apostar Preto", previsao: 2 };
+    // Estratégia 1: Tendência (Repetição)
+    if (pretos >= 5) return { cor: "red", texto: "📊 Tendência: Preto → Apostar Vermelho", previsao: 1 };
+    if (vermelhos >= 5) return { cor: "black", texto: "📊 Tendência: Vermelho → Apostar Preto", previsao: 2 };
 
     // Estratégia 2: Alternância
-    const alternando = ult7.slice(0, 6).every((val, i, arr) =>
-      i === 0 || (val !== 0 && arr[i - 1] !== 0 && val !== arr[i - 1])
-    );
-    if (alternando) {
+    const alterna = ult7.slice(0, 6).every((v, i, a) => i === 0 || (v !== 0 && a[i - 1] !== 0 && v !== a[i - 1]));
+    if (alterna) {
       const ultima = ult7[0];
-      const proxima = ultima === 1 ? 2 : 1;
-      const corTxt = proxima === 1 ? "Vermelho" : "Preto";
-      const corEstilo = proxima === 1 ? "red" : "black";
-      return { cor: corEstilo, texto: "Alternância detectada → Apostar " + corTxt, previsao: proxima };
+      const corAlt = ultima === 1 ? 2 : 1;
+      return {
+        cor: corAlt === 1 ? "red" : "black",
+        texto: "🔁 Alternância detectada → Apostar " + (corAlt === 1 ? "Vermelho" : "Preto"),
+        previsao: corAlt
+      };
     }
 
-    // Estratégia 3: Branco ausente
+    // Estratégia 3: Branco por Ausência
     if (!ult40.includes(0) && ultimaPrevisao !== 0) {
-      return { cor: "white", texto: "Alerta: Branco ausente há 40+ rodadas", previsao: 0 };
+      return { cor: "white", texto: "⚪️ Alerta: Branco ausente há 40+ rodadas", previsao: 0 };
     }
 
-    // Estratégia 4: Quebra de padrão com branco
+    // Estratégia 4: Quebra de padrão com branco após repetição
     const ult5 = h.slice(0, 5);
-    const repetida = ult5.every((v) => v === ult5[0]) && ult5[0] !== 0;
-    if (repetida && h[5] === 0) {
-      return { cor: "white", texto: "Quebra de padrão com Branco!", previsao: 0 };
+    const rep = ult5.every(v => v === ult5[0]) && ult5[0] !== 0;
+    if (rep && h[5] === 0) {
+      return { cor: "white", texto: "⚠️ Quebra de padrão com Branco!", previsao: 0 };
     }
 
-    // Estratégia 5: Gatilho visual (padrão quebrado por branco)
+    // Estratégia 5: Gatilho visual (branco quebra sequência)
     if (ult7[0] === 0 && (ult7[1] === ult7[2] && ult7[2] === ult7[3])) {
       const corBase = ult7[1] === 1 ? "Preto" : "Vermelho";
-      const corStyle = ult7[1] === 1 ? "black" : "red";
-      return { cor: corStyle, texto: "Gatilho: Branco quebrou padrão de " + corBase, previsao: 0 };
+      return {
+        cor: "white",
+        texto: `🔔 Gatilho visual: Branco quebrou padrão de ${corBase}`,
+        previsao: 0
+      };
     }
 
-    // Default
+    // Padrão comum
     return pretos > vermelhos
-      ? { cor: "red", texto: "Probabilidade Alta: Vermelho", previsao: 1 }
-      : { cor: "black", texto: "Probabilidade Alta: Preto", previsao: 2 };
+      ? { cor: "red", texto: "🤖 Probabilidade: Vermelho", previsao: 1 }
+      : { cor: "black", texto: "🤖 Probabilidade: Preto", previsao: 2 };
   }
 
   function atualizarPainel() {
@@ -159,7 +187,7 @@
 
     const total = acertos + erros;
     const taxa = total > 0 ? ((acertos / total) * 100).toFixed(1) : 0;
-    document.getElementById("acertosBox").textContent = "✅ " + acertos + " | ❌ " + erros + " | 🎯 " + taxa + "%";
+    document.getElementById("acertosBox").textContent = `✅ ${acertos} | ❌ ${erros} | 🎯 ${taxa}%`;
   }
 
   await fetchLast();
