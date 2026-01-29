@@ -7,10 +7,10 @@
     const MIN_CONFIDENCE_FOR_ENTRY = 75; // % Mínima de "confiança" para sugerir uma entrada (ajuste aqui!)
 
     // --- Variáveis de Estado ---
-    let currentEntry = 0;
     let lastGameId = null;
     let predictionActive = true;
     const history = []; // Armazena os últimos resultados: [{ color: 'red', timestamp: Date.now() }]
+    let fetchStartTime = 0; // Para controlar o progresso da barra
 
     // --- Elementos da Interface ---
     let containerDiv;
@@ -19,7 +19,7 @@
     let statusSpan;
     let predictionSpan;
     let confidenceSpan;
-    let entriesSpan;
+    let historyCountSpan; // Renomeado para refletir o tamanho do histórico
     let barDiv;
     let historyDisplayDiv;
 
@@ -186,7 +186,7 @@
             <p><strong>Status:</strong> <span id="status-text">Inicializando...</span></p>
             <p><strong>Previsão:</strong> <span id="prediction-text" class="value">Aguardando...</span></p>
             <p><strong>Confiança:</strong> <span id="confidence-text" class="value">0%</span></p>
-            <p><strong>Histórico:</strong> <span id="entries-count" class="value">0/${MAX_HISTORY_SIZE}</span></p>
+            <p><strong>Histórico:</strong> <span id="history-count" class="value">0/${MAX_HISTORY_SIZE}</span></p>
             <div id="prediction-bar-container"><div id="prediction-bar"></div></div>
             <div id="history-display"></div>
         `;
@@ -196,7 +196,7 @@
         statusSpan = document.getElementById('status-text');
         predictionSpan = document.getElementById('prediction-text');
         confidenceSpan = document.getElementById('confidence-text');
-        entriesSpan = document.getElementById('entries-count');
+        historyCountSpan = document.getElementById('history-count'); // Atualizado
         barDiv = document.getElementById('prediction-bar');
         historyDisplayDiv = document.getElementById('history-display');
 
@@ -244,7 +244,7 @@
         historyDisplayDiv.innerHTML = '';
         // Exibe os últimos 20 resultados do histórico
         const displayLimit = 20;
-        const itemsToDisplay = history.slice(-displayLimit);
+        const itemsToDisplay = history.slice(0, displayLimit); // Pega os mais recentes (que estão no início)
 
         itemsToDisplay.forEach(item => {
             const colorClass = `color-${item.color}`;
@@ -252,7 +252,8 @@
             historyItem.className = `history-item ${colorClass}`;
             historyDisplayDiv.appendChild(historyItem);
         });
-        historyDisplayDiv.scrollTop = historyDisplayDiv.scrollHeight; // Rola para o final
+        // historyDisplayDiv.scrollTop = historyDisplayDiv.scrollHeight; // Rola para o final (não necessário com unshift)
+        historyCountSpan.textContent = `${history.length}/${MAX_HISTORY_SIZE}`;
     }
 
     /**
@@ -265,7 +266,8 @@
             return { predictedColor: 'none', confidence: 0 };
         }
 
-        const lastColors = history.slice().reverse().map(item => item.color); // Últimos resultados, do mais recente ao mais antigo
+        // Usamos o histórico diretamente, pois ele já está ordenado do mais recente para o mais antigo
+        const lastColors = history.map(item => item.color);
         let redScore = 0;
         let blackScore = 0;
         let totalPatternsFound = 0;
@@ -296,6 +298,7 @@
             if (isAlternating && slice[0] !== 'white') {
                 totalPatternsFound++;
                 // Se o último foi B, o próximo na alternância seria R. Se foi R, o próximo seria B.
+                // A previsão é a cor que *viria* depois do último elemento da sequência alternada
                 if (slice[0] === 'red') redScore += 30; // Ex: R,B,R,B -> prevê R
                 if (slice[0] === 'black') blackScore += 30; // Ex: B,R,B,R -> prevê B
             }
@@ -368,11 +371,15 @@
             return;
         }
 
+        fetchStartTime = Date.now(); // Marca o início da busca
         statusSpan.textContent = 'Buscando resultado...';
-        updateProgressBar(0);
+        updateProgressBar(0); // Reseta a barra ao iniciar a busca
 
         try {
             const response = await fetch(API_URL);
+            if (!response.ok) { // Verifica se a resposta HTTP foi bem-sucedida
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
             const data = await response.json();
 
             if (data && data.length > 0) {
@@ -383,8 +390,6 @@
                 if (gameId !== lastGameId) {
                     // Novo resultado disponível
                     lastGameId = gameId;
-                    currentEntry++;
-                    entriesSpan.textContent = `${history.length}/${MAX_HISTORY_SIZE}`;
 
                     // Adiciona ao histórico (ignorando branco para análise de padrões de cor)
                     if (gameColor !== 'white') {
@@ -393,7 +398,7 @@
                             history.pop(); // Remove o mais antigo se exceder o limite
                         }
                     }
-                    updateHistoryDisplay(); // Atualiza a exibição do histórico
+                    updateHistoryDisplay(); // Atualiza a exibição do histórico e o contador
 
                     statusSpan.textContent = `Última: ${gameColor.toUpperCase()}`;
 
@@ -402,12 +407,20 @@
 
                         confidenceSpan.textContent = `${confidence}%`;
 
+                        // Remove a sugestão anterior se houver
+                        const oldSuggestion = document.querySelector('.entry-suggestion');
+                        if (oldSuggestion) oldSuggestion.remove();
+
                         if (predictedColor !== 'none' && confidence >= MIN_CONFIDENCE_FOR_ENTRY) {
                             predictionSpan.innerHTML = `
                                 <span class="color-${predictedColor}">${predictedColor.toUpperCase()}</span>
-                                <div class="entry-suggestion">ENTRAR NO ${predictedColor.toUpperCase()}!</div>
                             `;
                             predictionSpan.className = `value color-${predictedColor}`;
+                            // Adiciona a sugestão de entrada como um novo elemento
+                            const suggestionDiv = document.createElement('div');
+                            suggestionDiv.className = 'entry-suggestion';
+                            suggestionDiv.innerHTML = `ENTRAR NO ${predictedColor.toUpperCase()}!`;
+                            bodyDiv.appendChild(suggestionDiv); // Adiciona ao corpo principal
                             console.log(`[Blaze AI Predictor] ALTA CONFIANÇA! Entrar no ${predictedColor.toUpperCase()} (${confidence}%)`);
                         } else {
                             predictionSpan.innerHTML = `
@@ -429,19 +442,22 @@
                     // Mesmo resultado, aguardando o próximo
                     statusSpan.textContent = 'Aguardando novo resultado...';
                     // Atualiza a barra de progresso para simular espera
-                    const progress = (Date.now() % FETCH_INTERVAL_MS) / FETCH_INTERVAL_MS * 100;
+                    const elapsedTime = Date.now() - fetchStartTime;
+                    const progress = Math.min(100, (elapsedTime / FETCH_INTERVAL_MS) * 100);
                     updateProgressBar(progress);
                 }
             } else {
-                statusSpan.textContent = 'Erro: Nenhum dado da API.';
+                statusSpan.textContent = 'Erro: Nenhum dado válido da API.';
                 predictionSpan.textContent = '---';
                 confidenceSpan.textContent = '0%';
+                console.error('[Blaze AI Predictor] Erro: Nenhum dado válido da API.');
             }
         } catch (error) {
             console.error('Erro ao buscar dados da API:', error);
             statusSpan.textContent = 'Erro na conexão.';
             predictionSpan.textContent = '---';
             confidenceSpan.textContent = '0%';
+            updateProgressBar(0); // Reseta a barra em caso de erro
         }
     }
 
@@ -450,7 +466,7 @@
         createUI();
         // Inicia a busca e previsão em um intervalo
         setInterval(fetchAndPredict, FETCH_INTERVAL_MS);
-        fetchAndPredict(); // Executa uma vez imediatamente
+        fetchAndPredict(); // Executa uma vez imediatamente para iniciar
     }
 
     // Garante que o script só rode depois que a página estiver carregada
